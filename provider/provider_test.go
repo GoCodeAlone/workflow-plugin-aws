@@ -83,11 +83,19 @@ func TestAWSProvider_ResolveSizing(t *testing.T) {
 	}
 }
 
-func TestAWSProvider_NotInitialized(t *testing.T) {
+func TestAWSProvider_ResourceDriver_NotInitialized(t *testing.T) {
 	p := provider.NewAWSProvider()
 	_, err := p.ResourceDriver("infra.database")
-	// Should NOT fail — ResourceDriver lookup works before Initialize
-	if err != nil {
-		t.Logf("ResourceDriver before init: %v (expected for uninitialized)", err)
+	// Drivers are only registered after Initialize — expect error before init
+	if err == nil {
+		t.Error("expected error from ResourceDriver before Initialize")
+	}
+}
+
+func TestAWSProvider_ResourceDriver_UnknownType(t *testing.T) {
+	p := provider.NewAWSProvider()
+	_, err := p.ResourceDriver("infra.nonexistent")
+	if err == nil {
+		t.Error("expected error for unknown resource type")
 	}
 }

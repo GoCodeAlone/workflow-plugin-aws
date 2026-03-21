@@ -50,11 +50,11 @@ func (d *ECSDriver) Create(ctx context.Context, spec interfaces.ResourceSpec) (*
 	if image == "" {
 		return nil, fmt.Errorf("ecs: create %q: image is required", spec.Name)
 	}
-	cpu := spec.Config["cpu"].(string)
+	cpu, _ := spec.Config["cpu"].(string)
 	if cpu == "" {
 		cpu = "256"
 	}
-	memory := spec.Config["memory"].(string)
+	memory, _ := spec.Config["memory"].(string)
 	if memory == "" {
 		memory = "512"
 	}
@@ -128,9 +128,8 @@ func (d *ECSDriver) Update(ctx context.Context, ref interfaces.ResourceRef, spec
 		Cluster: awssdk.String(d.cluster),
 		Service: awssdk.String(ref.Name),
 	}
-	if replicas, ok := spec.Config["replicas"]; ok {
+	if _, ok := spec.Config["replicas"]; ok {
 		in.DesiredCount = awssdk.Int32(int32(intProp(spec.Config, "replicas", 1)))
-		_ = replicas
 	}
 	if image, _ := spec.Config["image"].(string); image != "" {
 		// Re-register task definition with new image

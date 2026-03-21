@@ -141,9 +141,8 @@ func (d *RDSDriver) HealthCheck(ctx context.Context, ref interfaces.ResourceRef)
 	return &interfaces.HealthResult{Healthy: healthy, Message: status}, nil
 }
 
-func (d *RDSDriver) Scale(ctx context.Context, ref interfaces.ResourceRef, _ int) (*interfaces.ResourceOutput, error) {
-	// RDS scaling = modifying instance class; replicas not directly applicable
-	return d.Read(ctx, ref)
+func (d *RDSDriver) Scale(_ context.Context, _ interfaces.ResourceRef, _ int) (*interfaces.ResourceOutput, error) {
+	return nil, fmt.Errorf("rds: use Update with instance_class to resize; replica count is managed via read replicas API")
 }
 
 func rdsDBToOutput(db *rdstypes.DBInstance) *interfaces.ResourceOutput {

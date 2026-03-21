@@ -19,7 +19,7 @@ var computeSizingMap = map[interfaces.Size]string{
 var rdsSizingMap = map[interfaces.Size]string{
 	interfaces.SizeXS: "db.t3.micro",
 	interfaces.SizeS:  "db.t3.small",
-	interfaces.SizeM:  "db.m5.large",
+	interfaces.SizeM:  "db.r6g.large",
 	interfaces.SizeL:  "db.r6g.2xlarge",
 	interfaces.SizeXL: "db.r6g.4xlarge",
 }

@@ -128,10 +128,8 @@ func (d *ElastiCacheDriver) HealthCheck(ctx context.Context, ref interfaces.Reso
 	return &interfaces.HealthResult{Healthy: healthy, Message: status}, nil
 }
 
-func (d *ElastiCacheDriver) Scale(ctx context.Context, ref interfaces.ResourceRef, _ int) (*interfaces.ResourceOutput, error) {
-	// ElastiCache replica count changes require IncreaseReplicaCount/DecreaseReplicaCount APIs.
-	// Return current state; callers should use Update with num_cache_clusters config.
-	return d.Read(ctx, ref)
+func (d *ElastiCacheDriver) Scale(_ context.Context, _ interfaces.ResourceRef, _ int) (*interfaces.ResourceOutput, error) {
+	return nil, fmt.Errorf("elasticache: replica count changes require IncreaseReplicaCount/DecreaseReplicaCount; use Update with num_cache_clusters")
 }
 
 func ecRGToOutput(rg *ectypes.ReplicationGroup) *interfaces.ResourceOutput {
