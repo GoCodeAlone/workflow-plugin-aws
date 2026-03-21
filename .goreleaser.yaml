@@ -1,0 +1,46 @@
+version: 2
+
+project_name: workflow-plugin-aws
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: workflow-plugin-aws
+    main: ./provider
+    binary: workflow-plugin-aws
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/GoCodeAlone/workflow-plugin-aws/provider.ProviderVersion={{.Version}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - plugin.json
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: GoCodeAlone
+    name: workflow-plugin-aws
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
