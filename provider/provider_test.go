@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/GoCodeAlone/workflow-plugin-aws/provider"
@@ -86,9 +87,11 @@ func TestAWSProvider_ResolveSizing(t *testing.T) {
 func TestAWSProvider_ResourceDriver_NotInitialized(t *testing.T) {
 	p := provider.NewAWSProvider()
 	_, err := p.ResourceDriver("infra.database")
-	// Drivers are only registered after Initialize — expect error before init
 	if err == nil {
-		t.Error("expected error from ResourceDriver before Initialize")
+		t.Fatal("expected error from ResourceDriver before Initialize")
+	}
+	if !strings.Contains(err.Error(), "no driver for resource type") {
+		t.Errorf("expected 'no driver for resource type' error, got: %v", err)
 	}
 }
 
@@ -96,6 +99,9 @@ func TestAWSProvider_ResourceDriver_UnknownType(t *testing.T) {
 	p := provider.NewAWSProvider()
 	_, err := p.ResourceDriver("infra.nonexistent")
 	if err == nil {
-		t.Error("expected error for unknown resource type")
+		t.Fatal("expected error for unknown resource type")
+	}
+	if !strings.Contains(err.Error(), "no driver for resource type") {
+		t.Errorf("expected 'no driver for resource type' error, got: %v", err)
 	}
 }
