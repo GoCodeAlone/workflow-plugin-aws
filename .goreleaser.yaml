@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: workflow-plugin-aws
-    main: ./provider
+    main: ./cmd/workflow-plugin-aws
     binary: workflow-plugin-aws
     env:
       - CGO_ENABLED=0
