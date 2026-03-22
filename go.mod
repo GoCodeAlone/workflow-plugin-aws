@@ -3,7 +3,7 @@ module github.com/GoCodeAlone/workflow-plugin-aws
 go 1.26.0
 
 require (
-	github.com/GoCodeAlone/workflow v0.0.0-00010101000000-000000000000
+	github.com/GoCodeAlone/workflow v0.3.54
 	github.com/aws/aws-sdk-go-v2 v1.41.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
@@ -49,5 +49,3 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/GoCodeAlone/workflow => /Users/jon/workspace/workflow
