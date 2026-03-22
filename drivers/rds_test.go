@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -142,5 +143,125 @@ func TestRDSDriver_Diff_NilCurrent(t *testing.T) {
 	}
 	if !diff.NeedsUpdate {
 		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestRDSDriver_Create_APIError(t *testing.T) {
+	mock := &mockRDSClient{createErr: fmt.Errorf("db identifier already exists")}
+	d := drivers.NewRDSDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-db",
+		Config: map[string]any{"master_password": "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateDBInstance API failure")
+	}
+}
+
+func TestRDSDriver_Update_Success(t *testing.T) {
+	mock := &mockRDSClient{
+		modifyOut: &rds.ModifyDBInstanceOutput{
+			DBInstance: &rdstypes.DBInstance{
+				DBInstanceIdentifier: awssdk.String("my-db"),
+				DBInstanceStatus:     awssdk.String("modifying"),
+				DBInstanceClass:      awssdk.String("db.t3.small"),
+				DBInstanceArn:        awssdk.String("arn:aws:rds:us-east-1:123:db:my-db"),
+			},
+		},
+	}
+	d := drivers.NewRDSDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-db"}, interfaces.ResourceSpec{
+		Name:   "my-db",
+		Config: map[string]any{"instance_class": "db.t3.small"},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestRDSDriver_Update_Error(t *testing.T) {
+	mock := &mockRDSClient{modifyErr: fmt.Errorf("invalid parameter")}
+	d := drivers.NewRDSDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-db"}, interfaces.ResourceSpec{
+		Name:   "my-db",
+		Config: map[string]any{"instance_class": "db.invalid"},
+	})
+	if err == nil {
+		t.Fatal("expected error on ModifyDBInstance API failure")
+	}
+}
+
+func TestRDSDriver_Delete_Error(t *testing.T) {
+	mock := &mockRDSClient{deleteErr: fmt.Errorf("cannot delete protected instance")}
+	d := drivers.NewRDSDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-db"})
+	if err == nil {
+		t.Fatal("expected error on DeleteDBInstance API failure")
+	}
+}
+
+func TestRDSDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewRDSDriverWithClient(&mockRDSClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-db",
+		Type:    "infra.database",
+		Outputs: map[string]any{"instance_class": "db.t3.micro"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-db",
+		Config: map[string]any{"instance_class": "db.t3.small"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when instance_class changes")
+	}
+}
+
+func TestRDSDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewRDSDriverWithClient(&mockRDSClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-db",
+		Type:    "infra.database",
+		Outputs: map[string]any{"instance_class": "db.t3.micro"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-db",
+		Config: map[string]any{"instance_class": "db.t3.micro"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestRDSDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockRDSClient{
+		describeOut: &rds.DescribeDBInstancesOutput{
+			DBInstances: []rdstypes.DBInstance{
+				{
+					DBInstanceIdentifier: awssdk.String("my-db"),
+					DBInstanceStatus:     awssdk.String("stopped"),
+					DBInstanceArn:        awssdk.String("arn:aws:rds:us-east-1:123:db:my-db"),
+				},
+			},
+		},
+	}
+	d := drivers.NewRDSDriverWithClient(mock)
+	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-db"})
+	if err != nil {
+		t.Fatalf("HealthCheck failed: %v", err)
+	}
+	if health.Healthy {
+		t.Error("expected unhealthy for stopped instance")
+	}
+	if health.Message == "" {
+		t.Error("expected non-empty message for unhealthy instance")
 	}
 }

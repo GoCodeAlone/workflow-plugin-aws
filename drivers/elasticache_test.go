@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -114,5 +115,133 @@ func TestElastiCacheDriver_HealthCheck_Available(t *testing.T) {
 	}
 	if !h.Healthy {
 		t.Errorf("expected healthy")
+	}
+}
+
+func TestElastiCacheDriver_Create_Error(t *testing.T) {
+	mock := &mockElastiCacheClient{createErr: fmt.Errorf("replication group already exists")}
+	d := drivers.NewElastiCacheDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cache",
+		Config: map[string]any{"node_type": "cache.t3.micro"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateReplicationGroup API failure")
+	}
+}
+
+func TestElastiCacheDriver_Update_Success(t *testing.T) {
+	mock := &mockElastiCacheClient{
+		modifyOut: &elasticache.ModifyReplicationGroupOutput{
+			ReplicationGroup: &ectypes.ReplicationGroup{
+				ReplicationGroupId: awssdk.String("my-cache"),
+				Status:             awssdk.String("modifying"),
+			},
+		},
+	}
+	d := drivers.NewElastiCacheDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-cache"}, interfaces.ResourceSpec{
+		Name:   "my-cache",
+		Config: map[string]any{"automatic_failover": true},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestElastiCacheDriver_Update_Error(t *testing.T) {
+	mock := &mockElastiCacheClient{modifyErr: fmt.Errorf("invalid parameter combination")}
+	d := drivers.NewElastiCacheDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-cache"}, interfaces.ResourceSpec{
+		Name:   "my-cache",
+		Config: map[string]any{"automatic_failover": true},
+	})
+	if err == nil {
+		t.Fatal("expected error on ModifyReplicationGroup API failure")
+	}
+}
+
+func TestElastiCacheDriver_Delete_Error(t *testing.T) {
+	mock := &mockElastiCacheClient{deleteErr: fmt.Errorf("replication group not found")}
+	d := drivers.NewElastiCacheDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-cache"})
+	if err == nil {
+		t.Fatal("expected error on DeleteReplicationGroup API failure")
+	}
+}
+
+func TestElastiCacheDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewElastiCacheDriverWithClient(&mockElastiCacheClient{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "my-cache"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestElastiCacheDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewElastiCacheDriverWithClient(&mockElastiCacheClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-cache",
+		Type:    "infra.cache",
+		Outputs: map[string]any{"node_type": "cache.t3.micro"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cache",
+		Config: map[string]any{"node_type": "cache.t3.small"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when node_type changes")
+	}
+}
+
+func TestElastiCacheDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewElastiCacheDriverWithClient(&mockElastiCacheClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-cache",
+		Type:    "infra.cache",
+		Outputs: map[string]any{"node_type": "cache.t3.micro"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cache",
+		Config: map[string]any{"node_type": "cache.t3.micro"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestElastiCacheDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockElastiCacheClient{
+		describeOut: &elasticache.DescribeReplicationGroupsOutput{
+			ReplicationGroups: []ectypes.ReplicationGroup{
+				{
+					ReplicationGroupId: awssdk.String("my-cache"),
+					Status:             awssdk.String("creating"),
+				},
+			},
+		},
+	}
+	d := drivers.NewElastiCacheDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-cache"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for non-available status")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy cache")
 	}
 }

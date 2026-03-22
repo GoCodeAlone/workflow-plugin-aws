@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -126,5 +127,140 @@ func TestIAMDriver_HealthCheck(t *testing.T) {
 	}
 	if !health.Healthy {
 		t.Errorf("expected healthy")
+	}
+}
+
+func TestIAMDriver_Create_Error(t *testing.T) {
+	mock := &mockIAMClient{createErr: fmt.Errorf("role already exists")}
+	d := drivers.NewIAMDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-role",
+		Config: map[string]any{},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateRole API failure")
+	}
+}
+
+func TestIAMDriver_Update_Success(t *testing.T) {
+	roleARN := "arn:aws:iam::123:role/my-role"
+	mock := &mockIAMClient{
+		getOut: &iam.GetRoleOutput{
+			Role: &iamtypes.Role{
+				RoleName: awssdk.String("my-role"),
+				Arn:      awssdk.String(roleARN),
+				RoleId:   awssdk.String("AROAEXAMPLE"),
+			},
+		},
+		listPolOut: &iam.ListAttachedRolePoliciesOutput{},
+	}
+	d := drivers.NewIAMDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-role"}, interfaces.ResourceSpec{
+		Name:   "my-role",
+		Config: map[string]any{"assume_role_policy": `{"Version":"2012-10-17","Statement":[]}`},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestIAMDriver_Update_Error(t *testing.T) {
+	roleARN := "arn:aws:iam::123:role/my-role"
+	mock := &mockIAMClient{
+		getOut: &iam.GetRoleOutput{
+			Role: &iamtypes.Role{
+				RoleName: awssdk.String("my-role"),
+				Arn:      awssdk.String(roleARN),
+			},
+		},
+		listPolOut: &iam.ListAttachedRolePoliciesOutput{},
+		updateErr:  fmt.Errorf("malformed policy document"),
+	}
+	d := drivers.NewIAMDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-role"}, interfaces.ResourceSpec{
+		Name:   "my-role",
+		Config: map[string]any{"assume_role_policy": "invalid-json"},
+	})
+	if err == nil {
+		t.Fatal("expected error on UpdateAssumeRolePolicy API failure")
+	}
+}
+
+func TestIAMDriver_Delete_Error(t *testing.T) {
+	mock := &mockIAMClient{
+		listPolOut: &iam.ListAttachedRolePoliciesOutput{},
+		deleteErr:  fmt.Errorf("role not found"),
+	}
+	d := drivers.NewIAMDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "missing-role"})
+	if err == nil {
+		t.Fatal("expected error on DeleteRole API failure")
+	}
+}
+
+func TestIAMDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewIAMDriverWithClient(&mockIAMClient{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "my-role"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestIAMDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewIAMDriverWithClient(&mockIAMClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-role",
+		Type:    "infra.iam_role",
+		Outputs: map[string]any{"arn": "arn:aws:iam::123:role/my-role"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-role",
+		Config: map[string]any{"arn": "arn:aws:iam::456:role/my-role"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when arn changes")
+	}
+}
+
+func TestIAMDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewIAMDriverWithClient(&mockIAMClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-role",
+		Type:    "infra.iam_role",
+		Outputs: map[string]any{"arn": "arn:aws:iam::123:role/my-role"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-role",
+		Config: map[string]any{"arn": "arn:aws:iam::123:role/my-role"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestIAMDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockIAMClient{getErr: fmt.Errorf("role not found")}
+	d := drivers.NewIAMDriverWithClient(mock)
+	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "missing-role"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Healthy {
+		t.Error("expected unhealthy when role not found")
+	}
+	if health.Message == "" {
+		t.Error("expected non-empty message for unhealthy role")
 	}
 }

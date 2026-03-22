@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -140,5 +141,132 @@ func TestACMDriver_HealthCheck_Issued(t *testing.T) {
 	}
 	if !h.Healthy {
 		t.Errorf("expected healthy for ISSUED cert")
+	}
+}
+
+func TestACMDriver_Create_Error(t *testing.T) {
+	mock := &mockACMClient{requestErr: fmt.Errorf("invalid domain name")}
+	d := drivers.NewACMDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "invalid..domain",
+		Config: map[string]any{"domain_name": "invalid..domain"},
+	})
+	if err == nil {
+		t.Fatal("expected error on RequestCertificate API failure")
+	}
+}
+
+func TestACMDriver_Update_Success(t *testing.T) {
+	certARN := "arn:aws:acm:us-east-1:123:certificate/abc-123"
+	mock := &mockACMClient{
+		describeOut: &acm.DescribeCertificateOutput{
+			Certificate: &acmtypes.CertificateDetail{
+				CertificateArn: awssdk.String(certARN),
+				DomainName:     awssdk.String("example.com"),
+				Status:         acmtypes.CertificateStatusIssued,
+			},
+		},
+	}
+	d := drivers.NewACMDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{
+		Name:       "example.com",
+		ProviderID: certARN,
+	}, interfaces.ResourceSpec{
+		Name:   "example.com",
+		Config: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestACMDriver_Delete_Error(t *testing.T) {
+	mock := &mockACMClient{deleteErr: fmt.Errorf("certificate in use")}
+	d := drivers.NewACMDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{
+		Name:       "example.com",
+		ProviderID: "arn:aws:acm:us-east-1:123:certificate/abc-123",
+	})
+	if err == nil {
+		t.Fatal("expected error on DeleteCertificate API failure")
+	}
+}
+
+func TestACMDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewACMDriverWithClient(&mockACMClient{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "example.com"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestACMDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewACMDriverWithClient(&mockACMClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "example.com",
+		Type:    "infra.certificate",
+		Outputs: map[string]any{"domain_name": "example.com"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "example.com",
+		Config: map[string]any{"domain_name": "*.example.com"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when domain changes")
+	}
+}
+
+func TestACMDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewACMDriverWithClient(&mockACMClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "example.com",
+		Type:    "infra.certificate",
+		Outputs: map[string]any{"domain_name": "example.com"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "example.com",
+		Config: map[string]any{"domain_name": "example.com"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestACMDriver_HealthCheck_Unhealthy(t *testing.T) {
+	certARN := "arn:aws:acm:us-east-1:123:certificate/abc-123"
+	mock := &mockACMClient{
+		describeOut: &acm.DescribeCertificateOutput{
+			Certificate: &acmtypes.CertificateDetail{
+				CertificateArn: awssdk.String(certARN),
+				DomainName:     awssdk.String("example.com"),
+				Status:         acmtypes.CertificateStatusPendingValidation,
+			},
+		},
+	}
+	d := drivers.NewACMDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{
+		Name:       "example.com",
+		ProviderID: certARN,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for PENDING_VALIDATION cert")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy cert")
 	}
 }

@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -117,5 +118,160 @@ func TestAPIGatewayDriver_Delete(t *testing.T) {
 	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-api"})
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
+	}
+}
+
+func TestAPIGatewayDriver_Create_Error(t *testing.T) {
+	mock := &mockAPIGatewayClient{createErr: fmt.Errorf("API name already exists")}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-api",
+		Config: map[string]any{"protocol": "HTTP"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateApi API failure")
+	}
+}
+
+func TestAPIGatewayDriver_Update_Success(t *testing.T) {
+	mock := &mockAPIGatewayClient{
+		getApisOut: &apigw.GetApisOutput{
+			Items: []apigwtypes.Api{
+				{ApiId: awssdk.String("abc123"), Name: awssdk.String("my-api"), ProtocolType: apigwtypes.ProtocolTypeHttp},
+			},
+		},
+		updateOut: &apigw.UpdateApiOutput{
+			ApiId:        awssdk.String("abc123"),
+			ApiEndpoint:  awssdk.String("https://abc123.execute-api.us-east-1.amazonaws.com"),
+			ProtocolType: apigwtypes.ProtocolTypeHttp,
+		},
+	}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-api"}, interfaces.ResourceSpec{
+		Name:   "my-api",
+		Config: map[string]any{"description": "Updated API"},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestAPIGatewayDriver_Update_Error(t *testing.T) {
+	mock := &mockAPIGatewayClient{
+		getApisOut: &apigw.GetApisOutput{
+			Items: []apigwtypes.Api{
+				{ApiId: awssdk.String("abc123"), Name: awssdk.String("my-api"), ProtocolType: apigwtypes.ProtocolTypeHttp},
+			},
+		},
+		updateErr: fmt.Errorf("invalid API configuration"),
+	}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-api"}, interfaces.ResourceSpec{
+		Name:   "my-api",
+		Config: map[string]any{"description": "bad"},
+	})
+	if err == nil {
+		t.Fatal("expected error on UpdateApi API failure")
+	}
+}
+
+func TestAPIGatewayDriver_Delete_Error(t *testing.T) {
+	mock := &mockAPIGatewayClient{
+		getApisOut: &apigw.GetApisOutput{
+			Items: []apigwtypes.Api{
+				{ApiId: awssdk.String("abc123"), Name: awssdk.String("my-api"), ProtocolType: apigwtypes.ProtocolTypeHttp},
+			},
+		},
+		deleteErr: fmt.Errorf("API not found"),
+	}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-api"})
+	if err == nil {
+		t.Fatal("expected error on DeleteApi API failure")
+	}
+}
+
+func TestAPIGatewayDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewAPIGatewayDriverWithClient(&mockAPIGatewayClient{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "my-api"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestAPIGatewayDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewAPIGatewayDriverWithClient(&mockAPIGatewayClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-api",
+		Type:    "infra.api_gateway",
+		Outputs: map[string]any{"protocol": "HTTP"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-api",
+		Config: map[string]any{"protocol": "WEBSOCKET"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when protocol changes")
+	}
+}
+
+func TestAPIGatewayDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewAPIGatewayDriverWithClient(&mockAPIGatewayClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-api",
+		Type:    "infra.api_gateway",
+		Outputs: map[string]any{"protocol": "HTTP"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-api",
+		Config: map[string]any{"protocol": "HTTP"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestAPIGatewayDriver_HealthCheck_Healthy(t *testing.T) {
+	mock := &mockAPIGatewayClient{
+		getApisOut: &apigw.GetApisOutput{
+			Items: []apigwtypes.Api{
+				{ApiId: awssdk.String("abc123"), Name: awssdk.String("my-api"), ProtocolType: apigwtypes.ProtocolTypeHttp},
+			},
+		},
+	}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Healthy {
+		t.Errorf("expected healthy, got: %s", h.Message)
+	}
+}
+
+func TestAPIGatewayDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockAPIGatewayClient{getApisErr: fmt.Errorf("API not found")}
+	d := drivers.NewAPIGatewayDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "missing-api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy when API not found")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy API")
 	}
 }

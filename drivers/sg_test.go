@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -106,5 +107,159 @@ func TestSGDriver_Scale_ReturnsError(t *testing.T) {
 	_, err := d.Scale(context.Background(), interfaces.ResourceRef{Name: "my-sg"}, 1)
 	if err == nil {
 		t.Error("expected error from Scale on security group")
+	}
+}
+
+func TestSGDriver_Create_Error(t *testing.T) {
+	mock := &mockSGClient{createErr: fmt.Errorf("VPC not found")}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-sg",
+		Config: map[string]any{"vpc_id": "vpc-invalid"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateSecurityGroup API failure")
+	}
+}
+
+func TestSGDriver_Update_Success(t *testing.T) {
+	mock := &mockSGClient{
+		describeOut: &ec2.DescribeSecurityGroupsOutput{
+			SecurityGroups: []ec2types.SecurityGroup{
+				{GroupId: awssdk.String("sg-12345"), GroupName: awssdk.String("my-sg"), VpcId: awssdk.String("vpc-abc")},
+			},
+		},
+	}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-sg"}, interfaces.ResourceSpec{
+		Name:   "my-sg",
+		Config: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestSGDriver_Update_Error(t *testing.T) {
+	mock := &mockSGClient{
+		describeOut: &ec2.DescribeSecurityGroupsOutput{
+			SecurityGroups: []ec2types.SecurityGroup{
+				{GroupId: awssdk.String("sg-12345"), GroupName: awssdk.String("my-sg")},
+			},
+		},
+		authorizeErr: fmt.Errorf("duplicate ingress rule"),
+	}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-sg"}, interfaces.ResourceSpec{
+		Name: "my-sg",
+		Config: map[string]any{
+			"ingress_rules": []any{
+				map[string]any{"from_port": 80, "to_port": 80, "protocol": "tcp"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error on AuthorizeSecurityGroupIngress API failure")
+	}
+}
+
+func TestSGDriver_Delete_Error(t *testing.T) {
+	mock := &mockSGClient{
+		describeOut: &ec2.DescribeSecurityGroupsOutput{
+			SecurityGroups: []ec2types.SecurityGroup{
+				{GroupId: awssdk.String("sg-12345"), GroupName: awssdk.String("my-sg")},
+			},
+		},
+		deleteErr: fmt.Errorf("security group in use"),
+	}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-sg"})
+	if err == nil {
+		t.Fatal("expected error on DeleteSecurityGroup API failure")
+	}
+}
+
+func TestSGDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewSecurityGroupDriverWithClient(&mockSGClient{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "my-sg"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestSGDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewSecurityGroupDriverWithClient(&mockSGClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-sg",
+		Type:    "infra.firewall",
+		Outputs: map[string]any{"vpc_id": "vpc-old"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-sg",
+		Config: map[string]any{"vpc_id": "vpc-new"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when vpc_id changes")
+	}
+}
+
+func TestSGDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewSecurityGroupDriverWithClient(&mockSGClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-sg",
+		Type:    "infra.firewall",
+		Outputs: map[string]any{"vpc_id": "vpc-abc"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-sg",
+		Config: map[string]any{"vpc_id": "vpc-abc"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestSGDriver_HealthCheck_Healthy(t *testing.T) {
+	mock := &mockSGClient{
+		describeOut: &ec2.DescribeSecurityGroupsOutput{
+			SecurityGroups: []ec2types.SecurityGroup{
+				{GroupId: awssdk.String("sg-12345"), GroupName: awssdk.String("my-sg"), VpcId: awssdk.String("vpc-abc")},
+			},
+		},
+	}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-sg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Healthy {
+		t.Errorf("expected healthy, got: %s", h.Message)
+	}
+}
+
+func TestSGDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockSGClient{describeErr: fmt.Errorf("security group not found")}
+	d := drivers.NewSecurityGroupDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "missing-sg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy when security group not found")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy security group")
 	}
 }

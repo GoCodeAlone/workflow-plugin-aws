@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -163,5 +164,178 @@ func TestECSDriver_Delete(t *testing.T) {
 	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-svc"})
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
+	}
+}
+
+func TestECSDriver_Create_APIError(t *testing.T) {
+	mock := &mockECSClient{
+		registerOut: &ecs.RegisterTaskDefinitionOutput{
+			TaskDefinition: &ecstypes.TaskDefinition{
+				TaskDefinitionArn: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/my-svc:1"),
+			},
+		},
+		createSvcErr: fmt.Errorf("service quota exceeded"),
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-svc",
+		Config: map[string]any{"image": "nginx:latest"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateService API failure")
+	}
+}
+
+func TestECSDriver_Update_Success(t *testing.T) {
+	mock := &mockECSClient{
+		registerOut: &ecs.RegisterTaskDefinitionOutput{
+			TaskDefinition: &ecstypes.TaskDefinition{
+				TaskDefinitionArn: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/my-svc:2"),
+			},
+		},
+		updateOut: &ecs.UpdateServiceOutput{
+			Service: &ecstypes.Service{
+				ServiceArn:     awssdk.String("arn:aws:ecs:us-east-1:123:service/default/my-svc"),
+				ServiceName:    awssdk.String("my-svc"),
+				Status:         awssdk.String("ACTIVE"),
+				DesiredCount:   2,
+				RunningCount:   1,
+				TaskDefinition: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/my-svc:2"),
+			},
+		},
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-svc"}, interfaces.ResourceSpec{
+		Name:   "my-svc",
+		Config: map[string]any{"image": "nginx:1.25", "replicas": 2},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestECSDriver_Update_Error(t *testing.T) {
+	mock := &mockECSClient{
+		updateErr: fmt.Errorf("update failed"),
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-svc"}, interfaces.ResourceSpec{
+		Name:   "my-svc",
+		Config: map[string]any{"replicas": 3},
+	})
+	if err == nil {
+		t.Fatal("expected error on UpdateService API failure")
+	}
+}
+
+func TestECSDriver_Delete_Error(t *testing.T) {
+	mock := &mockECSClient{
+		updateOut: &ecs.UpdateServiceOutput{
+			Service: &ecstypes.Service{
+				ServiceArn:  awssdk.String("arn:..."),
+				ServiceName: awssdk.String("my-svc"),
+				Status:      awssdk.String("ACTIVE"),
+			},
+		},
+		deleteErr: fmt.Errorf("service in use"),
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-svc"})
+	if err == nil {
+		t.Fatal("expected error on DeleteService API failure")
+	}
+}
+
+func TestECSDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewECSDriverWithClient(&mockECSClient{}, "default")
+	current := &interfaces.ResourceOutput{
+		Name:    "my-svc",
+		Type:    "infra.container_service",
+		Outputs: map[string]any{"image": "nginx:1.24", "replicas": 1},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-svc",
+		Config: map[string]any{"image": "nginx:1.25", "replicas": 2},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when config changes")
+	}
+}
+
+func TestECSDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewECSDriverWithClient(&mockECSClient{}, "default")
+	current := &interfaces.ResourceOutput{
+		Name:    "my-svc",
+		Type:    "infra.container_service",
+		Outputs: map[string]any{"image": "nginx:latest"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-svc",
+		Config: map[string]any{"image": "nginx:latest"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestECSDriver_HealthCheck_Healthy(t *testing.T) {
+	mock := &mockECSClient{
+		describeOut: &ecs.DescribeServicesOutput{
+			Services: []ecstypes.Service{
+				{
+					ServiceArn:     awssdk.String("arn:aws:ecs:us-east-1:123:service/default/my-svc"),
+					ServiceName:    awssdk.String("my-svc"),
+					Status:         awssdk.String("ACTIVE"),
+					DesiredCount:   1,
+					RunningCount:   1,
+					TaskDefinition: awssdk.String("td:1"),
+				},
+			},
+		},
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-svc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Healthy {
+		t.Errorf("expected healthy, got: %s", h.Message)
+	}
+}
+
+func TestECSDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockECSClient{
+		describeOut: &ecs.DescribeServicesOutput{
+			Services: []ecstypes.Service{
+				{
+					ServiceArn:     awssdk.String("arn:aws:ecs:us-east-1:123:service/default/my-svc"),
+					ServiceName:    awssdk.String("my-svc"),
+					Status:         awssdk.String("INACTIVE"),
+					DesiredCount:   1,
+					RunningCount:   0,
+					TaskDefinition: awssdk.String("td:1"),
+				},
+			},
+		},
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-svc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for INACTIVE service")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy service")
 	}
 }

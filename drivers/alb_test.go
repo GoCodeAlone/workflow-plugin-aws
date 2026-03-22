@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -113,5 +114,178 @@ func TestALBDriver_Scale_ReturnsError(t *testing.T) {
 	_, err := d.Scale(context.Background(), interfaces.ResourceRef{Name: "my-alb"}, 3)
 	if err == nil {
 		t.Error("expected error from Scale on ALB")
+	}
+}
+
+func TestALBDriver_Create_Error(t *testing.T) {
+	mock := &mockELBv2Client{createErr: fmt.Errorf("load balancer limit exceeded")}
+	d := drivers.NewALBDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-alb",
+		Config: map[string]any{"scheme": "internet-facing"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateLoadBalancer API failure")
+	}
+}
+
+func TestALBDriver_Update_Success(t *testing.T) {
+	mock := &mockELBv2Client{
+		describeOut: &elbv2.DescribeLoadBalancersOutput{
+			LoadBalancers: []elbtypes.LoadBalancer{
+				{
+					LoadBalancerArn:  awssdk.String("arn:aws:elb:us-east-1:123:lb/my-alb"),
+					LoadBalancerName: awssdk.String("my-alb"),
+					State:            &elbtypes.LoadBalancerState{Code: elbtypes.LoadBalancerStateEnumActive},
+				},
+			},
+		},
+	}
+	d := drivers.NewALBDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-alb"}, interfaces.ResourceSpec{
+		Name:   "my-alb",
+		Config: map[string]any{"idle_timeout": 120},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestALBDriver_Update_Error(t *testing.T) {
+	mock := &mockELBv2Client{
+		describeOut: &elbv2.DescribeLoadBalancersOutput{
+			LoadBalancers: []elbtypes.LoadBalancer{
+				{
+					LoadBalancerArn:  awssdk.String("arn:aws:elb:us-east-1:123:lb/my-alb"),
+					LoadBalancerName: awssdk.String("my-alb"),
+					State:            &elbtypes.LoadBalancerState{Code: elbtypes.LoadBalancerStateEnumActive},
+				},
+			},
+		},
+		modifyErr: fmt.Errorf("invalid attribute"),
+	}
+	d := drivers.NewALBDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-alb"}, interfaces.ResourceSpec{
+		Name:   "my-alb",
+		Config: map[string]any{"idle_timeout": "-1"},
+	})
+	if err == nil {
+		t.Fatal("expected error on ModifyLoadBalancerAttributes API failure")
+	}
+}
+
+func TestALBDriver_Delete_Error(t *testing.T) {
+	mock := &mockELBv2Client{
+		describeOut: &elbv2.DescribeLoadBalancersOutput{
+			LoadBalancers: []elbtypes.LoadBalancer{
+				{
+					LoadBalancerArn:  awssdk.String("arn:aws:elb:us-east-1:123:lb/my-alb"),
+					LoadBalancerName: awssdk.String("my-alb"),
+					State:            &elbtypes.LoadBalancerState{Code: elbtypes.LoadBalancerStateEnumActive},
+				},
+			},
+		},
+		deleteErr: fmt.Errorf("load balancer not found"),
+	}
+	d := drivers.NewALBDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-alb"})
+	if err == nil {
+		t.Fatal("expected error on DeleteLoadBalancer API failure")
+	}
+}
+
+func TestALBDriver_Diff_NilCurrent(t *testing.T) {
+	d := drivers.NewALBDriverWithClient(&mockELBv2Client{})
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{Name: "my-alb"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true for nil current")
+	}
+}
+
+func TestALBDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewALBDriverWithClient(&mockELBv2Client{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-alb",
+		Type:    "infra.load_balancer",
+		Outputs: map[string]any{"scheme": "internal"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-alb",
+		Config: map[string]any{"scheme": "internet-facing"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when scheme changes")
+	}
+}
+
+func TestALBDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewALBDriverWithClient(&mockELBv2Client{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-alb",
+		Type:    "infra.load_balancer",
+		Outputs: map[string]any{"scheme": "internet-facing"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-alb",
+		Config: map[string]any{"scheme": "internet-facing"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestALBDriver_HealthCheck_Healthy(t *testing.T) {
+	mock := &mockELBv2Client{
+		describeOut: &elbv2.DescribeLoadBalancersOutput{
+			LoadBalancers: []elbtypes.LoadBalancer{
+				{
+					LoadBalancerArn:  awssdk.String("arn:aws:elb:us-east-1:123:lb/my-alb"),
+					LoadBalancerName: awssdk.String("my-alb"),
+					State:            &elbtypes.LoadBalancerState{Code: elbtypes.LoadBalancerStateEnumActive},
+				},
+			},
+		},
+	}
+	d := drivers.NewALBDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-alb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Healthy {
+		t.Errorf("expected healthy, got: %s", h.Message)
+	}
+}
+
+func TestALBDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockELBv2Client{
+		describeOut: &elbv2.DescribeLoadBalancersOutput{
+			LoadBalancers: []elbtypes.LoadBalancer{
+				{
+					LoadBalancerArn:  awssdk.String("arn:aws:elb:us-east-1:123:lb/my-alb"),
+					LoadBalancerName: awssdk.String("my-alb"),
+					State:            &elbtypes.LoadBalancerState{Code: elbtypes.LoadBalancerStateEnumProvisioning},
+				},
+			},
+		},
+	}
+	d := drivers.NewALBDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-alb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for provisioning ALB")
 	}
 }

@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -109,5 +110,147 @@ func TestVPCDriver_Diff_NilCurrent(t *testing.T) {
 	}
 	if !diff.NeedsUpdate {
 		t.Error("expected NeedsUpdate=true")
+	}
+}
+
+func TestVPCDriver_Create_Error(t *testing.T) {
+	mock := &mockVPCClient{createErr: fmt.Errorf("VPC limit exceeded")}
+	d := drivers.NewVPCDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-vpc",
+		Config: map[string]any{"cidr": "10.0.0.0/16"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateVpc API failure")
+	}
+}
+
+func TestVPCDriver_Update_Success(t *testing.T) {
+	mock := &mockVPCClient{
+		describeOut: &ec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{VpcId: awssdk.String("vpc-12345"), CidrBlock: awssdk.String("10.0.0.0/16"), State: ec2types.VpcStateAvailable},
+			},
+		},
+	}
+	d := drivers.NewVPCDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-vpc"}, interfaces.ResourceSpec{
+		Name:   "my-vpc",
+		Config: map[string]any{"cidr": "10.0.0.0/16"},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestVPCDriver_Update_Error(t *testing.T) {
+	mock := &mockVPCClient{
+		describeOut: &ec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{VpcId: awssdk.String("vpc-12345"), CidrBlock: awssdk.String("10.0.0.0/16"), State: ec2types.VpcStateAvailable},
+			},
+		},
+		tagsErr: fmt.Errorf("tag limit exceeded"),
+	}
+	d := drivers.NewVPCDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-vpc"}, interfaces.ResourceSpec{
+		Name:   "my-vpc",
+		Config: map[string]any{},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateTags API failure")
+	}
+}
+
+func TestVPCDriver_Delete_Error(t *testing.T) {
+	mock := &mockVPCClient{
+		describeOut: &ec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{VpcId: awssdk.String("vpc-12345"), CidrBlock: awssdk.String("10.0.0.0/16"), State: ec2types.VpcStateAvailable},
+			},
+		},
+		deleteErr: fmt.Errorf("vpc has dependencies"),
+	}
+	d := drivers.NewVPCDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-vpc"})
+	if err == nil {
+		t.Fatal("expected error on DeleteVpc API failure")
+	}
+}
+
+func TestVPCDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewVPCDriverWithClient(&mockVPCClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-vpc",
+		Type:    "infra.vpc",
+		Outputs: map[string]any{"cidr": "10.0.0.0/16"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-vpc",
+		Config: map[string]any{"cidr": "10.1.0.0/16"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when cidr changes")
+	}
+}
+
+func TestVPCDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewVPCDriverWithClient(&mockVPCClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-vpc",
+		Type:    "infra.vpc",
+		Outputs: map[string]any{"cidr": "10.0.0.0/16"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-vpc",
+		Config: map[string]any{"cidr": "10.0.0.0/16"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestVPCDriver_HealthCheck_Healthy(t *testing.T) {
+	mock := &mockVPCClient{
+		describeOut: &ec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{VpcId: awssdk.String("vpc-12345"), CidrBlock: awssdk.String("10.0.0.0/16"), State: ec2types.VpcStateAvailable},
+			},
+		},
+	}
+	d := drivers.NewVPCDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-vpc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Healthy {
+		t.Errorf("expected healthy, got: %s", h.Message)
+	}
+}
+
+func TestVPCDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockVPCClient{
+		describeOut: &ec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{VpcId: awssdk.String("vpc-12345"), CidrBlock: awssdk.String("10.0.0.0/16"), State: ec2types.VpcStatePending},
+			},
+		},
+	}
+	d := drivers.NewVPCDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-vpc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for pending VPC")
 	}
 }

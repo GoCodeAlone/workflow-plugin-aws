@@ -139,3 +139,121 @@ func TestEKSDriver_Read_Error(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+func TestEKSDriver_Create_Error(t *testing.T) {
+	mock := &mockEKSClient{createErr: fmt.Errorf("cluster already exists")}
+	d := drivers.NewEKSDriverWithClient(mock)
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cluster",
+		Config: map[string]any{"version": "1.29"},
+	})
+	if err == nil {
+		t.Fatal("expected error on CreateCluster API failure")
+	}
+}
+
+func TestEKSDriver_Update_Success(t *testing.T) {
+	mock := &mockEKSClient{
+		updateErr: nil,
+		describeOut: &eks.DescribeClusterOutput{
+			Cluster: &ekstypes.Cluster{
+				Name:    awssdk.String("my-cluster"),
+				Arn:     awssdk.String("arn:aws:eks:us-east-1:123:cluster/my-cluster"),
+				Status:  ekstypes.ClusterStatusActive,
+				Version: awssdk.String("1.30"),
+			},
+		},
+	}
+	d := drivers.NewEKSDriverWithClient(mock)
+	out, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-cluster"}, interfaces.ResourceSpec{
+		Name:   "my-cluster",
+		Config: map[string]any{"version": "1.30"},
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+}
+
+func TestEKSDriver_Update_Error(t *testing.T) {
+	mock := &mockEKSClient{updateErr: fmt.Errorf("update in progress")}
+	d := drivers.NewEKSDriverWithClient(mock)
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{Name: "my-cluster"}, interfaces.ResourceSpec{
+		Name:   "my-cluster",
+		Config: map[string]any{"version": "1.30"},
+	})
+	if err == nil {
+		t.Fatal("expected error on UpdateClusterVersion API failure")
+	}
+}
+
+func TestEKSDriver_Delete_Error(t *testing.T) {
+	mock := &mockEKSClient{deleteErr: fmt.Errorf("cluster not found")}
+	d := drivers.NewEKSDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{Name: "my-cluster"})
+	if err == nil {
+		t.Fatal("expected error on DeleteCluster API failure")
+	}
+}
+
+func TestEKSDriver_Diff_HasChanges(t *testing.T) {
+	d := drivers.NewEKSDriverWithClient(&mockEKSClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-cluster",
+		Type:    "infra.k8s_cluster",
+		Outputs: map[string]any{"version": "1.28"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cluster",
+		Config: map[string]any{"version": "1.29"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when version changes")
+	}
+}
+
+func TestEKSDriver_Diff_NoChanges(t *testing.T) {
+	d := drivers.NewEKSDriverWithClient(&mockEKSClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "my-cluster",
+		Type:    "infra.k8s_cluster",
+		Outputs: map[string]any{"version": "1.29"},
+	}
+	diff, err := d.Diff(context.Background(), interfaces.ResourceSpec{
+		Name:   "my-cluster",
+		Config: map[string]any{"version": "1.29"},
+	}, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestEKSDriver_HealthCheck_Unhealthy(t *testing.T) {
+	mock := &mockEKSClient{
+		describeOut: &eks.DescribeClusterOutput{
+			Cluster: &ekstypes.Cluster{
+				Name:   awssdk.String("my-cluster"),
+				Status: ekstypes.ClusterStatusCreating,
+			},
+		},
+	}
+	d := drivers.NewEKSDriverWithClient(mock)
+	h, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-cluster"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Healthy {
+		t.Error("expected unhealthy for CREATING cluster")
+	}
+	if h.Message == "" {
+		t.Error("expected non-empty message for unhealthy cluster")
+	}
+}
