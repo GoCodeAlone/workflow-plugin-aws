@@ -8,6 +8,12 @@ import (
 	sdk "github.com/GoCodeAlone/workflow/plugin/external/sdk"
 )
 
+// Version is set at build time via -ldflags
+// "-X github.com/GoCodeAlone/workflow-plugin-aws/internal.Version=X.Y.Z".
+// Default is a bare semver so plugin loaders that validate semver accept
+// unreleased dev builds; goreleaser overrides with the real release tag.
+var Version = "0.0.0"
+
 type awsPlugin struct{}
 
 // NewAWSPlugin returns the AWS SDK plugin provider.
