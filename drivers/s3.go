@@ -23,6 +23,7 @@ type S3Client interface {
 
 // S3Driver manages S3 buckets (infra.storage).
 type S3Driver struct {
+	noSensitiveKeys
 	client S3Client
 	region string
 }

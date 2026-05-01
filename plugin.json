@@ -3,20 +3,19 @@
   "version": "0.1.0",
   "author": "GoCodeAlone",
   "description": "AWS provider plugin for workflow IaC — manages ECS, EKS, RDS, ElastiCache, VPC, ALB, Route53, ECR, API Gateway, Security Groups, IAM, S3, and ACM resources",
-  "provider": "aws",
-  "capabilities": [
-    "infra.container_service",
-    "infra.k8s_cluster",
-    "infra.database",
-    "infra.cache",
-    "infra.vpc",
-    "infra.load_balancer",
-    "infra.dns",
-    "infra.registry",
-    "infra.api_gateway",
-    "infra.firewall",
-    "infra.iam_role",
-    "infra.storage",
-    "infra.certificate"
-  ]
+  "license": "MIT",
+  "type": "external",
+  "tier": "community",
+  "minEngineVersion": "0.19.0",
+  "keywords": ["aws", "iac", "infrastructure", "ecs", "eks", "rds", "vpc", "s3"],
+  "homepage": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+  "repository": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+  "capabilities": {
+    "configProvider": false,
+    "moduleTypes": [
+      "iac.provider"
+    ],
+    "stepTypes": [],
+    "triggerTypes": []
+  }
 }

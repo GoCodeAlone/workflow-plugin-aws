@@ -22,6 +22,7 @@ type Route53Client interface {
 
 // Route53Driver manages Route53 hosted zones (infra.dns).
 type Route53Driver struct {
+	noSensitiveKeys
 	client Route53Client
 }
 

@@ -23,6 +23,7 @@ type SGClient interface {
 
 // SecurityGroupDriver manages EC2 security groups (infra.firewall).
 type SecurityGroupDriver struct {
+	noSensitiveKeys
 	client SGClient
 }
 

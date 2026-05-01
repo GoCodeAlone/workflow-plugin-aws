@@ -23,6 +23,7 @@ type ECSClient interface {
 
 // ECSDriver manages ECS Fargate services (infra.container_service).
 type ECSDriver struct {
+	noSensitiveKeys
 	client  ECSClient
 	cluster string
 }
