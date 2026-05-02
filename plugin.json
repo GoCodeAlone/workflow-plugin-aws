@@ -17,5 +17,37 @@
     ],
     "stepTypes": [],
     "triggerTypes": []
-  }
+  },
+  "downloads": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_linux_amd64.tar.gz"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_linux_arm64.tar.gz"
+    },
+    {
+      "os": "darwin",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_darwin_amd64.tar.gz"
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_darwin_arm64.tar.gz"
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_windows_amd64.tar.gz"
+    },
+    {
+      "os": "windows",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_windows_arm64.tar.gz"
+    }
+  ]
 }

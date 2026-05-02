@@ -385,17 +385,18 @@ func (p *AWSProvider) Close() error {
 	return nil
 }
 
-// SupportedCanonicalKeys returns the canonical IaC config keys that the AWS
-// provider recognises. The AWS provider accepts the full common key set plus
-// provider-specific overrides.
+// SupportedCanonicalKeys returns the AWS-specific IaC config keys that this
+// provider recognises: region, access_key_id, secret_access_key, and ecs_cluster.
 func (p *AWSProvider) SupportedCanonicalKeys() []string {
 	return []string{
 		"region", "access_key_id", "secret_access_key", "ecs_cluster",
 	}
 }
 
-// BootstrapStateBackend ensures the S3 state bucket exists and is ready.
-// Returns nil result when the caller should manage the bucket outside the provider.
+// BootstrapStateBackend is intentionally a no-op for the AWS provider: state
+// backend management (e.g. creating an S3 bucket for Terraform state) is
+// handled outside this provider module. Callers that need a bootstrapped
+// backend should provision it independently.
 func (p *AWSProvider) BootstrapStateBackend(_ context.Context, _ map[string]any) (*interfaces.BootstrapResult, error) {
 	return nil, nil
 }

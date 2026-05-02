@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestAWSPluginImplementsStrictContractProviders(t *testing.T) {
@@ -93,16 +94,23 @@ func TestTypedModuleProviderValidatesTypedConfig(t *testing.T) {
 }
 
 func TestTypedModuleProviderRejectsWrongType(t *testing.T) {
-	type wrongMsg struct{}
-	// Use a mismatched message type to simulate a type error.
 	provider := NewAWSPlugin().(sdk.TypedModuleProvider)
 	config, err := anypb.New(&contracts.AWSProviderConfig{Region: "us-east-1"})
 	if err != nil {
 		t.Fatalf("pack config: %v", err)
 	}
-	// Attempt to create an unknown module type.
+	// Reject unknown module type name.
 	if _, err := provider.CreateTypedModule("iac.unknown", "x", config); err == nil {
-		t.Fatal("CreateTypedModule accepted unknown type")
+		t.Fatal("CreateTypedModule accepted unknown module type")
+	}
+
+	// Reject correct module type but wrong proto message payload.
+	wrongConfig, err := anypb.New(wrapperspb.String("bad-payload"))
+	if err != nil {
+		t.Fatalf("pack wrong config: %v", err)
+	}
+	if _, err := provider.CreateTypedModule("iac.provider", "x", wrongConfig); err == nil {
+		t.Fatal("CreateTypedModule accepted wrong proto message type for iac.provider")
 	}
 }
 
@@ -138,10 +146,14 @@ func TestTypedModuleProviderConfigMapsToLegacyModule(t *testing.T) {
 	if got := legacy.config["ecs_cluster"]; got != "prod" {
 		t.Fatalf("ecs_cluster = %q, want prod", got)
 	}
+	if got := legacy.config["secret_access_key"]; got != "SECRET" {
+		t.Fatalf("secret_access_key = %q, want SECRET", got)
+	}
 }
 
-// awsModuleTypes is the canonical list of module types exported by this plugin.
-var awsModuleTypes = []string{"iac.provider"}
+// awsModuleTypes is derived at test time from the plugin's TypedModuleTypes(),
+// so the contract registry check stays in sync with the runtime advertisement.
+var awsModuleTypes = NewAWSPlugin().(sdk.TypedModuleProvider).TypedModuleTypes()
 
 type manifestContract struct {
 	Mode          string `json:"mode"`
