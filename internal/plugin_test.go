@@ -64,7 +64,7 @@ func TestContractRegistryDeclaresStrictModuleContracts(t *testing.T) {
 		}
 	}
 
-	for _, moduleType := range awsModuleTypes {
+	for _, moduleType := range pluginTypedModuleTypes() {
 		key := "module:" + moduleType
 		if _, ok := contractsByKey[key]; !ok {
 			t.Fatalf("missing contract %s", key)
@@ -151,9 +151,12 @@ func TestTypedModuleProviderConfigMapsToLegacyModule(t *testing.T) {
 	}
 }
 
-// awsModuleTypes is derived at test time from the plugin's TypedModuleTypes(),
-// so the contract registry check stays in sync with the runtime advertisement.
-var awsModuleTypes = NewAWSPlugin().(sdk.TypedModuleProvider).TypedModuleTypes()
+// pluginTypedModuleTypes calls TypedModuleTypes() on a fresh plugin instance.
+// It is called lazily within tests rather than at package init to avoid side
+// effects during test binary loading.
+func pluginTypedModuleTypes() []string {
+	return NewAWSPlugin().(sdk.TypedModuleProvider).TypedModuleTypes()
+}
 
 type manifestContract struct {
 	Mode          string `json:"mode"`
