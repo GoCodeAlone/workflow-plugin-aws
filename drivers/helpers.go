@@ -6,6 +6,12 @@ import (
 	"github.com/GoCodeAlone/workflow/interfaces"
 )
 
+// noSensitiveKeys is a zero-size mixin that satisfies the SensitiveKeys method
+// of interfaces.ResourceDriver for drivers that have no sensitive output keys.
+type noSensitiveKeys struct{}
+
+func (noSensitiveKeys) SensitiveKeys() []string { return nil }
+
 // strPtr returns a pointer to the given string.
 func strPtr(s string) *string { return &s }
 

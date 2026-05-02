@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package workflow.plugins.aws.v1;
+
+option go_package = "github.com/GoCodeAlone/workflow-plugin-aws/internal/contracts;contracts";
+
+// AWSProviderConfig is the typed configuration for the iac.provider module
+// provided by workflow-plugin-aws. All fields correspond to the map keys
+// accepted by the legacy Initialize(ctx, map[string]any) path.
+message AWSProviderConfig {
+  // region is the AWS region (default: us-east-1).
+  string region = 1;
+  // access_key_id is the AWS access key ID for static credentials.
+  string access_key_id = 2;
+  // secret_access_key is the AWS secret access key for static credentials.
+  string secret_access_key = 3;
+  // ecs_cluster is the default ECS cluster name used by the ECS driver.
+  string ecs_cluster = 4;
+}

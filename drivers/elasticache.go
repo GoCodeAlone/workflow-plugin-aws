@@ -21,6 +21,7 @@ type ElastiCacheClient interface {
 
 // ElastiCacheDriver manages ElastiCache replication groups (infra.cache).
 type ElastiCacheDriver struct {
+	noSensitiveKeys
 	client ElastiCacheClient
 }
 

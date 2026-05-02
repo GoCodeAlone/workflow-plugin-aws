@@ -3,20 +3,51 @@
   "version": "0.1.0",
   "author": "GoCodeAlone",
   "description": "AWS provider plugin for workflow IaC — manages ECS, EKS, RDS, ElastiCache, VPC, ALB, Route53, ECR, API Gateway, Security Groups, IAM, S3, and ACM resources",
-  "provider": "aws",
-  "capabilities": [
-    "infra.container_service",
-    "infra.k8s_cluster",
-    "infra.database",
-    "infra.cache",
-    "infra.vpc",
-    "infra.load_balancer",
-    "infra.dns",
-    "infra.registry",
-    "infra.api_gateway",
-    "infra.firewall",
-    "infra.iam_role",
-    "infra.storage",
-    "infra.certificate"
+  "license": "MIT",
+  "type": "external",
+  "tier": "community",
+  "minEngineVersion": "0.19.0",
+  "keywords": ["aws", "iac", "infrastructure", "ecs", "eks", "rds", "vpc", "s3"],
+  "homepage": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+  "repository": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+  "capabilities": {
+    "configProvider": false,
+    "moduleTypes": [
+      "iac.provider"
+    ],
+    "stepTypes": [],
+    "triggerTypes": []
+  },
+  "downloads": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_linux_amd64.tar.gz"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_linux_arm64.tar.gz"
+    },
+    {
+      "os": "darwin",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_darwin_amd64.tar.gz"
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_darwin_arm64.tar.gz"
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_windows_amd64.tar.gz"
+    },
+    {
+      "os": "windows",
+      "arch": "arm64",
+      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.1.0/workflow-plugin-aws_0.1.0_windows_arm64.tar.gz"
+    }
   ]
 }
