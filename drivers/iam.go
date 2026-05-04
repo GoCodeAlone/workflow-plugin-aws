@@ -229,4 +229,7 @@ func defaultAssumeRolePolicy() string {
 	return string(data)
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *IAMDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*IAMDriver)(nil)

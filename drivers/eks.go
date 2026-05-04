@@ -151,4 +151,7 @@ func eksClusterToOutput(c *ekstypes.Cluster) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *EKSDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*EKSDriver)(nil)

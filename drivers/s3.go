@@ -166,4 +166,7 @@ func s3BucketToOutput(name, region string) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *S3Driver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*S3Driver)(nil)

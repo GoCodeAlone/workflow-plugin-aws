@@ -194,4 +194,7 @@ func albLBToOutput(lb *elbtypes.LoadBalancer) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *ALBDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*ALBDriver)(nil)

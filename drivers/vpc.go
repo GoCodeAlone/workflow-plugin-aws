@@ -166,4 +166,7 @@ func vpcToOutput(name string, vpc *ec2types.Vpc) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *VPCDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*VPCDriver)(nil)

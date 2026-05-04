@@ -224,4 +224,7 @@ func sgToOutput(name, groupID, vpcID string) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *SecurityGroupDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*SecurityGroupDriver)(nil)

@@ -161,4 +161,7 @@ func apigwAPIToOutput(name string, apiID, endpoint *string, protocol string) *in
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *APIGatewayDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*APIGatewayDriver)(nil)
