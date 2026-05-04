@@ -182,4 +182,7 @@ func acmCertToOutput(name string, cert *acmtypes.CertificateDetail) *interfaces.
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *ACMDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*ACMDriver)(nil)

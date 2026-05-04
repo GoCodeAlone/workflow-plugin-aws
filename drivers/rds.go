@@ -200,4 +200,7 @@ func rdsDBToOutput(db *rdstypes.DBInstance) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *RDSDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*RDSDriver)(nil)

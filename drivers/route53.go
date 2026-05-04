@@ -193,4 +193,7 @@ func r53ZoneToOutput(name string, zone *r53types.HostedZone) *interfaces.Resourc
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *Route53Driver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*Route53Driver)(nil)

@@ -247,4 +247,7 @@ func ecsServiceToOutput(name string, svc *ecstypes.Service) *interfaces.Resource
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *ECSDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*ECSDriver)(nil)

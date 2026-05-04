@@ -129,4 +129,7 @@ func ecrRepoToOutput(repo *ecrtypes.Repository) *interfaces.ResourceOutput {
 	}
 }
 
+// SensitiveKeys returns output keys whose values should be masked in logs and plan output.
+func (d *ECRDriver) SensitiveKeys() []string { return nil }
+
 var _ interfaces.ResourceDriver = (*ECRDriver)(nil)
