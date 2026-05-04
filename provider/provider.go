@@ -378,6 +378,22 @@ func (p *AWSProvider) ResolveSizing(resourceType string, size interfaces.Size, h
 	return resolveSizing(resourceType, size, hints)
 }
 
+// SupportedCanonicalKeys returns the full canonical IaC key set. Per the
+// interfaces.IaCProvider doc, "built-in and stub providers return the full
+// canonical key set"; this provider's drivers do not currently reject
+// unsupported keys at the provider level.
+func (p *AWSProvider) SupportedCanonicalKeys() []string {
+	return interfaces.CanonicalKeys()
+}
+
+// BootstrapStateBackend is a no-op for this provider; AWS S3 state backends
+// are managed via separate workflow paths rather than the provider interface.
+// Returns (nil, nil) per interfaces.IaCProvider's documented contract for
+// providers that do not manage state.
+func (p *AWSProvider) BootstrapStateBackend(_ context.Context, _ map[string]any) (*interfaces.BootstrapResult, error) {
+	return nil, nil
+}
+
 func (p *AWSProvider) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
