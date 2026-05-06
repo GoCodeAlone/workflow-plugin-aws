@@ -21,6 +21,7 @@ type ACMClient interface {
 
 // ACMDriver manages ACM certificates (infra.certificate).
 type ACMDriver struct {
+	noSensitiveKeys
 	client ACMClient
 }
 

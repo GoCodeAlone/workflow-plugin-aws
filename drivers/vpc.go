@@ -21,6 +21,7 @@ type VPCClient interface {
 
 // VPCDriver manages AWS VPC resources (infra.vpc).
 type VPCDriver struct {
+	noSensitiveKeys
 	client VPCClient
 }
 

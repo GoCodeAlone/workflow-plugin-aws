@@ -21,6 +21,7 @@ type EKSClient interface {
 
 // EKSDriver manages EKS clusters (infra.k8s_cluster).
 type EKSDriver struct {
+	noSensitiveKeys
 	client EKSClient
 }
 

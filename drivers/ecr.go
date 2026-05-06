@@ -21,6 +21,7 @@ type ECRClient interface {
 
 // ECRDriver manages ECR repositories (infra.registry).
 type ECRDriver struct {
+	noSensitiveKeys
 	client ECRClient
 }
 

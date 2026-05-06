@@ -22,6 +22,7 @@ type APIGatewayClient interface {
 
 // APIGatewayDriver manages API Gateway v2 APIs (infra.api_gateway).
 type APIGatewayDriver struct {
+	noSensitiveKeys
 	client APIGatewayClient
 }
 
