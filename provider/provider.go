@@ -378,27 +378,31 @@ func (p *AWSProvider) ResolveSizing(resourceType string, size interfaces.Size, h
 	return resolveSizing(resourceType, size, hints)
 }
 
+// SupportedCanonicalKeys returns the full canonical IaC key set plus the
+// AWS-specific keys accepted by this provider (access_key_id, secret_access_key,
+// ecs_cluster).
+func (p *AWSProvider) SupportedCanonicalKeys() []string {
+	canonical := interfaces.CanonicalKeys()
+	awsSpecific := []string{"access_key_id", "secret_access_key", "ecs_cluster"}
+	result := make([]string, 0, len(canonical)+len(awsSpecific))
+	result = append(result, canonical...)
+	result = append(result, awsSpecific...)
+	return result
+}
+
+// BootstrapStateBackend is a no-op for this provider; AWS S3 state backends
+// are managed via separate workflow paths rather than the provider interface.
+// Returns (nil, nil) per interfaces.IaCProvider's documented contract for
+// providers that do not manage state.
+func (p *AWSProvider) BootstrapStateBackend(_ context.Context, _ map[string]any) (*interfaces.BootstrapResult, error) {
+	return nil, nil
+}
+
 func (p *AWSProvider) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.initialized = false
 	return nil
-}
-
-// SupportedCanonicalKeys returns the AWS-specific IaC config keys that this
-// provider recognises: region, access_key_id, secret_access_key, and ecs_cluster.
-func (p *AWSProvider) SupportedCanonicalKeys() []string {
-	return []string{
-		"region", "access_key_id", "secret_access_key", "ecs_cluster",
-	}
-}
-
-// BootstrapStateBackend is intentionally a no-op for the AWS provider: state
-// backend management (e.g. creating an S3 bucket for Terraform state) is
-// handled outside this provider module. Callers that need a bootstrapped
-// backend should provision it independently.
-func (p *AWSProvider) BootstrapStateBackend(_ context.Context, _ map[string]any) (*interfaces.BootstrapResult, error) {
-	return nil, nil
 }
 
 // resourceDriver is the internal (non-locking) lookup, called within locked sections.

@@ -3,7 +3,7 @@ module github.com/GoCodeAlone/workflow-plugin-aws
 go 1.26.0
 
 require (
-	github.com/GoCodeAlone/workflow v0.19.0
+	github.com/GoCodeAlone/workflow v0.19.2
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
