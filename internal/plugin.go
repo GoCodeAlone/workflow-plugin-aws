@@ -74,7 +74,9 @@ func (p *awsPlugin) CreateTypedModule(typeName, name string, config *anypb.Any) 
 			// access_key_id / secret_access_key would silently fall back to the
 			// ambient AWS credential chain and potentially deploy to the wrong
 			// account.
-			if (cfg.GetAccessKeyId() == "") != (cfg.GetSecretAccessKey() == "") {
+			hasKey := cfg.GetAccessKeyId() != ""
+			hasSecret := cfg.GetSecretAccessKey() != ""
+			if hasKey != hasSecret {
 				return nil, fmt.Errorf("aws: access_key_id and secret_access_key must both be set or both be empty")
 			}
 			legacyConfig := map[string]any{
