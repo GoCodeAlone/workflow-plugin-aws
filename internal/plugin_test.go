@@ -158,6 +158,100 @@ func pluginTypedModuleTypes() []string {
 	return NewAWSPlugin().(sdk.TypedModuleProvider).TypedModuleTypes()
 }
 
+// TestPluginManifestModuleTypesInSync verifies that plugin.json's
+// capabilities.moduleTypes list exactly matches the runtime TypedModuleTypes(),
+// so a future rename cannot leave the discovery metadata stale.
+func TestPluginManifestModuleTypesInSync(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "plugin.json"))
+	if err != nil {
+		t.Fatalf("read plugin.json: %v", err)
+	}
+	var manifest struct {
+		Capabilities struct {
+			ModuleTypes []string `json:"moduleTypes"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse plugin.json: %v", err)
+	}
+	runtimeTypes := pluginTypedModuleTypes()
+	manifestSet := make(map[string]bool, len(manifest.Capabilities.ModuleTypes))
+	for _, mt := range manifest.Capabilities.ModuleTypes {
+		manifestSet[mt] = true
+	}
+	runtimeSet := make(map[string]bool, len(runtimeTypes))
+	for _, mt := range runtimeTypes {
+		runtimeSet[mt] = true
+	}
+	for _, mt := range runtimeTypes {
+		if !manifestSet[mt] {
+			t.Errorf("TypedModuleTypes() has %q but plugin.json capabilities.moduleTypes does not", mt)
+		}
+	}
+	for _, mt := range manifest.Capabilities.ModuleTypes {
+		if !runtimeSet[mt] {
+			t.Errorf("plugin.json capabilities.moduleTypes has %q but TypedModuleTypes() does not", mt)
+		}
+	}
+}
+
+// TestTypedModuleProviderRejectsPartialCredentials verifies that supplying
+// only one of access_key_id / secret_access_key is rejected with an error,
+// preventing a silent fallback to the ambient AWS credential chain.
+func TestTypedModuleProviderRejectsPartialCredentials(t *testing.T) {
+	p := NewAWSPlugin().(sdk.TypedModuleProvider)
+
+	// Only access_key_id set — should fail.
+	config, err := anypb.New(&contracts.AWSProviderConfig{
+		Region:      "us-east-1",
+		AccessKeyId: "AKID",
+	})
+	if err != nil {
+		t.Fatalf("pack config: %v", err)
+	}
+	if _, err := p.CreateTypedModule("iac.provider", "x", config); err == nil {
+		t.Error("CreateTypedModule accepted config with access_key_id but no secret_access_key")
+	}
+
+	// Only secret_access_key set — should fail.
+	config2, err := anypb.New(&contracts.AWSProviderConfig{
+		Region:          "us-east-1",
+		SecretAccessKey: "SECRET",
+	})
+	if err != nil {
+		t.Fatalf("pack config2: %v", err)
+	}
+	if _, err := p.CreateTypedModule("iac.provider", "x", config2); err == nil {
+		t.Error("CreateTypedModule accepted config with secret_access_key but no access_key_id")
+	}
+
+	// Both set — should succeed.
+	config3, err := anypb.New(&contracts.AWSProviderConfig{
+		Region:          "us-east-1",
+		AccessKeyId:     "AKID",
+		SecretAccessKey: "SECRET",
+	})
+	if err != nil {
+		t.Fatalf("pack config3: %v", err)
+	}
+	if _, err := p.CreateTypedModule("iac.provider", "x", config3); err != nil {
+		t.Errorf("CreateTypedModule rejected valid full credential pair: %v", err)
+	}
+
+	// Neither set — should succeed (uses ambient credentials).
+	config4, err := anypb.New(&contracts.AWSProviderConfig{Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("pack config4: %v", err)
+	}
+	if _, err := p.CreateTypedModule("iac.provider", "x", config4); err != nil {
+		t.Errorf("CreateTypedModule rejected config with no static credentials: %v", err)
+	}
+}
+
 type manifestContract struct {
 	Mode          string `json:"mode"`
 	ConfigMessage string `json:"config"`
