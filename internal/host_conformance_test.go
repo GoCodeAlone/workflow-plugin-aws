@@ -1,26 +1,30 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/GoCodeAlone/workflow/plugin/external"
 	pb "github.com/GoCodeAlone/workflow/plugin/external/proto"
 )
 
-func TestWorkflowHostConformance_LoadsLegacyIaCModulePlugin(t *testing.T) {
+// TestWorkflowHostConformance_LoadsTypedIaCPlugin validates the host/plugin
+// boundary for the typed-IaC gRPC pattern (sdk.ServeIaCPlugin). Skipped by
+// default; set WORKFLOW_IAC_HOST_CONFORMANCE=1 to run.
+//
+// This test mirrors workflow-plugin-digitalocean v1.0.1
+// internal/host_conformance_test.go exactly.
+func TestWorkflowHostConformance_LoadsTypedIaCPlugin(t *testing.T) {
 	if os.Getenv("WORKFLOW_IAC_HOST_CONFORMANCE") != "1" {
 		t.Skip("set WORKFLOW_IAC_HOST_CONFORMANCE=1 to run host compatibility smoke")
 	}
 
-	// AWS is still a legacy sdk.Serve module plugin, not a strict-cutover
-	// sdk.ServeIaCPlugin provider. This gate validates the host/plugin boundary
-	// it actually ships today: external plugin load, iac.provider discovery, and
-	// strict module contract registry exposure across engine versions.
 	repoRoot := hostConformanceRepoRoot(t)
 	pluginName := hostConformancePluginName(t, filepath.Join(repoRoot, "plugin.json"))
 
@@ -45,19 +49,36 @@ func TestWorkflowHostConformance_LoadsLegacyIaCModulePlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load plugin through Workflow external host: %v", err)
 	}
-	if adapter.Name() != pluginName {
-		t.Fatalf("host adapter name = %q, want %q", adapter.Name(), pluginName)
-	}
-	if !hasString(adapter.EngineManifest().ModuleTypes, moduleTypeIaCProvider) {
-		t.Fatalf("host adapter module types = %v, want %q", adapter.EngineManifest().ModuleTypes, moduleTypeIaCProvider)
-	}
 
 	registry := adapter.ContractRegistry()
 	if registry == nil {
 		t.Fatal("contract registry is nil")
 	}
-	if !registryHasModule(registry, moduleTypeIaCProvider) {
-		t.Fatalf("contract registry missing module %q: %v", moduleTypeIaCProvider, registry.GetContracts())
+	// Typed-IaC plugins expose SERVICE-kind contracts (not module-kind).
+	if !registryHasService(registry, pb.IaCProviderRequired_ServiceDesc.ServiceName) {
+		t.Fatalf("contract registry missing required service %q: %v",
+			pb.IaCProviderRequired_ServiceDesc.ServiceName, registry.GetContracts())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	required := pb.NewIaCProviderRequiredClient(adapter.Conn())
+	name, err := required.Name(ctx, &pb.NameRequest{})
+	if err != nil {
+		t.Fatalf("call typed IaCProviderRequired.Name: %v", err)
+	}
+	if name.GetName() != "aws" {
+		t.Fatalf("provider name = %q, want %q", name.GetName(), "aws")
+	}
+
+	capabilities, err := required.Capabilities(ctx, &pb.CapabilitiesRequest{})
+	if err != nil {
+		t.Fatalf("call typed IaCProviderRequired.Capabilities: %v", err)
+	}
+	if !capabilitiesHasResource(capabilities, "infra.container_service") {
+		t.Fatalf("provider capabilities missing infra.container_service: %v",
+			capabilities.GetCapabilities())
 	}
 }
 
@@ -99,18 +120,19 @@ func hostConformanceCopyFile(t *testing.T, src, dst string) {
 	}
 }
 
-func registryHasModule(registry *pb.ContractRegistry, moduleType string) bool {
+func registryHasService(registry *pb.ContractRegistry, serviceName string) bool {
 	for _, contract := range registry.GetContracts() {
-		if contract.GetKind() == pb.ContractKind_CONTRACT_KIND_MODULE && contract.GetModuleType() == moduleType {
+		if contract.GetKind() == pb.ContractKind_CONTRACT_KIND_SERVICE &&
+			contract.GetServiceName() == serviceName {
 			return true
 		}
 	}
 	return false
 }
 
-func hasString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
+func capabilitiesHasResource(capabilities *pb.CapabilitiesResponse, resourceType string) bool {
+	for _, capability := range capabilities.GetCapabilities() {
+		if capability.GetResourceType() == resourceType {
 			return true
 		}
 	}
