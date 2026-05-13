@@ -608,9 +608,10 @@ func TestAutoScalingGroupDriver_Diff_NilCurrent(t *testing.T) {
 func TestAutoScalingGroupDriver_Diff_HasChanges(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	current := &interfaces.ResourceOutput{
-		Name:    "asg",
-		Type:    "infra.autoscaling_group",
-		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 5, "policy_names": ""},
+		Name:       "asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID,
+		Outputs:    map[string]any{"min_capacity": 1, "max_capacity": 5, "policy_names": ""},
 	}
 	spec := baseAutoScalingSpec("asg")
 	spec.Config["max_capacity"] = 20
@@ -626,9 +627,10 @@ func TestAutoScalingGroupDriver_Diff_HasChanges(t *testing.T) {
 func TestAutoScalingGroupDriver_Diff_NoChanges(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	current := &interfaces.ResourceOutput{
-		Name:    "asg",
-		Type:    "infra.autoscaling_group",
-		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": ""},
+		Name:       "asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID, // matches baseAutoScalingSpec identity
+		Outputs:    map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": ""},
 	}
 	diff, err := d.Diff(context.Background(), baseAutoScalingSpec("asg"), current)
 	if err != nil {
@@ -642,9 +644,10 @@ func TestAutoScalingGroupDriver_Diff_NoChanges(t *testing.T) {
 func TestAutoScalingGroupDriver_Diff_PolicyChange(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	current := &interfaces.ResourceOutput{
-		Name:    "asg",
-		Type:    "infra.autoscaling_group",
-		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": []string{"old-policy"}},
+		Name:       "asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID,
+		Outputs:    map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": []string{"old-policy"}},
 	}
 	// Desired spec has a different policy set.
 	spec := baseAutoScalingSpec("asg")
@@ -725,6 +728,97 @@ func TestAutoScalingGroupDriver_SensitiveKeys(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	if keys := d.SensitiveKeys(); keys != nil {
 		t.Errorf("expected nil sensitive keys, got %v", keys)
+	}
+}
+
+// ---- Diff identity drift ----
+
+func TestAutoScalingGroupDriver_Diff_IdentityDrift(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	// Current output has a different ProviderID (different resource_id).
+	current := &interfaces.ResourceOutput{
+		Name:       "asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: "ecs|service/old-cluster/old-service|ecs:service:DesiredCount",
+		Outputs:    map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": ""},
+	}
+	// Desired spec has a different identity — should trigger NeedsUpdate.
+	diff, err := d.Diff(context.Background(), baseAutoScalingSpec("asg"), current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when scalable target identity changes")
+	}
+}
+
+// ---- Update identity mismatch ----
+
+func TestAutoScalingGroupDriver_Update_IdentityMismatch(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	// ref.ProviderID encodes a different identity than the spec — should error.
+	_, err := d.Update(context.Background(), interfaces.ResourceRef{
+		Name:       "my-asg",
+		ProviderID: "ecs|service/old-cluster/old-service|ecs:service:DesiredCount",
+	}, baseAutoScalingSpec("my-asg"))
+	if err == nil {
+		t.Fatal("expected error when ProviderID does not match spec identity")
+	}
+}
+
+// ---- Create with int target_value ----
+
+func TestAutoScalingGroupDriver_Create_TargetTrackingPolicy_IntTargetValue(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		registerOut: &applicationautoscaling.RegisterScalableTargetOutput{
+			ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc"),
+		},
+		putPolicyOut:        &applicationautoscaling.PutScalingPolicyOutput{PolicyARN: awssdk.String("arn:aws:autoscaling:policy/xyz")},
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	spec := baseAutoScalingSpec("my-asg")
+	// Use int (common in YAML decoding) instead of float64.
+	spec.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":            "cpu-tracking",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           int(75), // int, not float64
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
+		},
+	}
+	out, err := d.Create(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Create with int target_value failed: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+	captured := mock.capturedPutPolicyInput
+	if captured == nil {
+		t.Fatal("expected PutScalingPolicy to have been called")
+	}
+	if awssdk.ToFloat64(captured.TargetTrackingScalingPolicyConfiguration.TargetValue) != 75 {
+		t.Errorf("expected TargetValue=75, got %v", awssdk.ToFloat64(captured.TargetTrackingScalingPolicyConfiguration.TargetValue))
+	}
+}
+
+// ---- parsePolicies malformed input ----
+
+func TestAutoScalingGroupDriver_Create_MalformedPoliciesType(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		registerOut: &applicationautoscaling.RegisterScalableTargetOutput{
+			ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc"),
+		},
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	spec := baseAutoScalingSpec("my-asg")
+	// policies is a string, not a list — should fail safe rather than delete-all.
+	spec.Config["policies"] = "not-a-list"
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error when policies is malformed (wrong type)")
 	}
 }
 

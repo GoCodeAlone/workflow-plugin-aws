@@ -130,7 +130,10 @@ func (d *AutoScalingGroupDriver) Read(ctx context.Context, ref interfaces.Resour
 	}
 	target := out.ScalableTargets[0]
 
-	policyNames := d.readPolicyNames(ctx, target)
+	policyNames, err := d.readPolicyNames(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("autoscaling_group: read %q: list policies: %w", ref.Name, err)
+	}
 	minCap := int(awssdk.ToInt32(target.MinCapacity))
 	maxCap := int(awssdk.ToInt32(target.MaxCapacity))
 	providerID := encodeProviderID(string(target.ServiceNamespace), awssdk.ToString(target.ResourceId), string(target.ScalableDimension))
@@ -140,10 +143,22 @@ func (d *AutoScalingGroupDriver) Read(ctx context.Context, ref interfaces.Resour
 }
 
 // Update re-registers the scalable target (idempotent) and reconciles scaling policies.
+// If ref.ProviderID is set, it must match the identity encoded in the spec
+// (service_namespace|resource_id|scalable_dimension). A mismatch indicates that the
+// identity fields have changed, which would target a different scalable target and
+// orphan the previous one; callers should delete and re-create in that case.
 func (d *AutoScalingGroupDriver) Update(ctx context.Context, ref interfaces.ResourceRef, spec interfaces.ResourceSpec) (*interfaces.ResourceOutput, error) {
 	ns, resourceID, dim, err := requiredAutoScalingFields(spec)
 	if err != nil {
 		return nil, fmt.Errorf("autoscaling_group: update %q: %w", ref.Name, err)
+	}
+
+	// Validate identity consistency when ProviderID is known.
+	if ref.ProviderID != "" {
+		wantProviderID := encodeProviderID(ns, resourceID, dim)
+		if ref.ProviderID != wantProviderID {
+			return nil, fmt.Errorf("autoscaling_group: update %q: identity mismatch — ProviderID %q does not match spec identity %q; delete and re-create to change scalable target identity", ref.Name, ref.ProviderID, wantProviderID)
+		}
 	}
 
 	minCap, maxCap, err := validateCapacity(spec.Config)
@@ -246,15 +261,23 @@ func (d *AutoScalingGroupDriver) Diff(_ context.Context, desired interfaces.Reso
 	sort.Strings(curPolicies)
 	curPolicyKey := strings.Join(curPolicies, ",")
 
+	// Compute the expected ProviderID from the desired spec to detect identity drift.
+	specNS, _ := desired.Config["service_namespace"].(string)
+	specResourceID, _ := desired.Config["resource_id"].(string)
+	specDim, _ := desired.Config["scalable_dimension"].(string)
+	wantProviderID := encodeProviderID(specNS, specResourceID, specDim)
+
 	want := map[string]any{
 		"min_capacity": intProp(desired.Config, "min_capacity", 0),
 		"max_capacity": intProp(desired.Config, "max_capacity", 1),
 		"policy_names": wantPolicyKey,
+		"provider_id":  wantProviderID,
 	}
 	currentForDiff := map[string]any{
 		"min_capacity": current.Outputs["min_capacity"],
 		"max_capacity": current.Outputs["max_capacity"],
 		"policy_names": curPolicyKey,
+		"provider_id":  current.ProviderID,
 	}
 	changes := diffOutputs(want, currentForDiff)
 	return &interfaces.DiffResult{NeedsUpdate: len(changes) > 0, Changes: changes}, nil
@@ -279,18 +302,14 @@ func (d *AutoScalingGroupDriver) Scale(_ context.Context, _ interfaces.ResourceR
 
 // validateCapacity extracts min/max_capacity, enforcing presence and min<=max.
 func validateCapacity(config map[string]any) (minCap, maxCap int32, err error) {
-	minRaw, minOK := config["min_capacity"]
-	maxRaw, maxOK := config["max_capacity"]
-	if !minOK {
+	if _, ok := config["min_capacity"]; !ok {
 		return 0, 0, fmt.Errorf("min_capacity is required")
 	}
-	if !maxOK {
+	if _, ok := config["max_capacity"]; !ok {
 		return 0, 0, fmt.Errorf("max_capacity is required")
 	}
 	minI := intProp(config, "min_capacity", -1)
 	maxI := intProp(config, "max_capacity", -1)
-	_ = minRaw
-	_ = maxRaw
 	if minI < 0 {
 		return 0, 0, fmt.Errorf("min_capacity must be a non-negative integer")
 	}
@@ -373,22 +392,25 @@ func (d *AutoScalingGroupDriver) fetchLivePolicies(ctx context.Context, ns, reso
 	return out.ScalingPolicies, nil
 }
 
-// readPolicyNames fetches policy names for a ScalableTarget; returns nil on error.
-func (d *AutoScalingGroupDriver) readPolicyNames(ctx context.Context, target aastypes.ScalableTarget) []string {
+// readPolicyNames fetches policy names for a ScalableTarget.
+// Returns an error so callers can distinguish "target exists" from "policy enumeration failed."
+func (d *AutoScalingGroupDriver) readPolicyNames(ctx context.Context, target aastypes.ScalableTarget) ([]string, error) {
 	policies, err := d.fetchLivePolicies(ctx, string(target.ServiceNamespace), awssdk.ToString(target.ResourceId), string(target.ScalableDimension))
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var names []string
 	for _, p := range policies {
 		names = append(names, awssdk.ToString(p.PolicyName))
 	}
-	return names
+	return names, nil
 }
 
 // desiredPolicyNames returns the policy_name values from the spec config.
+// Malformed policy entries are skipped to allow safe fingerprinting; callers
+// that need strict validation use parsePolicies directly.
 func desiredPolicyNames(config map[string]any) []string {
-	policies := parsePolicies(config)
+	policies, _ := parsePolicies(config)
 	names := make([]string, 0, len(policies))
 	for _, p := range policies {
 		names = append(names, p.policyName)
@@ -400,7 +422,10 @@ func desiredPolicyNames(config map[string]any) []string {
 //  1. Delete live policies whose policy_name is absent from the desired list.
 //  2. PutScalingPolicy for each desired policy.
 func (d *AutoScalingGroupDriver) syncPolicies(ctx context.Context, spec interfaces.ResourceSpec, ns, resourceID, dim string, livePolicies []aastypes.ScalingPolicy) error {
-	desired := parsePolicies(spec.Config)
+	desired, err := parsePolicies(spec.Config)
+	if err != nil {
+		return fmt.Errorf("parse policies: %w", err)
+	}
 
 	// Build set of desired policy names.
 	desiredNames := make(map[string]struct{}, len(desired))
@@ -454,27 +479,41 @@ type stepAdjustment struct {
 }
 
 // parsePolicies extracts the policies slice from config.
-func parsePolicies(config map[string]any) []policySpec {
+// Returns an error if the policies key exists but has an unexpected type or contains
+// malformed entries, so reconciliation can fail safely without destructive deletes.
+func parsePolicies(config map[string]any) ([]policySpec, error) {
 	raw, ok := config["policies"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	items, ok := raw.([]any)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("policies must be a list, got %T", raw)
 	}
 	var result []policySpec
-	for _, item := range items {
+	for i, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("policies[%d] must be a map, got %T", i, item)
 		}
 		p := policySpec{}
 		p.policyName, _ = m["policy_name"].(string)
 		p.policyType, _ = m["policy_type"].(string)
-		if tv, ok := m["target_value"].(float64); ok {
-			p.targetValue = tv
+
+		// target_value accepts float64, int, int64 (common in YAML decoding).
+		if tvRaw, ok := m["target_value"]; ok {
+			switch v := tvRaw.(type) {
+			case float64:
+				p.targetValue = v
+			case int:
+				p.targetValue = float64(v)
+			case int64:
+				p.targetValue = float64(v)
+			default:
+				return nil, fmt.Errorf("policies[%d]: target_value must be a number, got %T", i, tvRaw)
+			}
 		}
+
 		p.predefinedMetricType, _ = m["predefined_metric_type"].(string)
 		p.scaleInCooldown = int32(intProp(m, "scale_in_cooldown", 300))
 		p.scaleOutCooldown = int32(intProp(m, "scale_out_cooldown", 300))
@@ -483,23 +522,25 @@ func parsePolicies(config map[string]any) []policySpec {
 
 		// Parse step_adjustments for StepScaling.
 		if saRaw, ok := m["step_adjustments"]; ok {
-			if saItems, ok := saRaw.([]any); ok {
-				for _, saItem := range saItems {
-					saMap, ok := saItem.(map[string]any)
-					if !ok {
-						continue
-					}
-					sa := stepAdjustment{
-						scalingAdjustment: int32(intProp(saMap, "scaling_adjustment", 0)),
-					}
-					if lb, ok := saMap["metric_interval_lower_bound"].(float64); ok {
-						sa.metricIntervalLowerBound = awssdk.Float64(lb)
-					}
-					if ub, ok := saMap["metric_interval_upper_bound"].(float64); ok {
-						sa.metricIntervalUpperBound = awssdk.Float64(ub)
-					}
-					p.stepAdjustments = append(p.stepAdjustments, sa)
+			saItems, ok := saRaw.([]any)
+			if !ok {
+				return nil, fmt.Errorf("policies[%d]: step_adjustments must be a list, got %T", i, saRaw)
+			}
+			for j, saItem := range saItems {
+				saMap, ok := saItem.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("policies[%d].step_adjustments[%d] must be a map, got %T", i, j, saItem)
 				}
+				sa := stepAdjustment{
+					scalingAdjustment: int32(intProp(saMap, "scaling_adjustment", 0)),
+				}
+				if lb, ok := saMap["metric_interval_lower_bound"].(float64); ok {
+					sa.metricIntervalLowerBound = awssdk.Float64(lb)
+				}
+				if ub, ok := saMap["metric_interval_upper_bound"].(float64); ok {
+					sa.metricIntervalUpperBound = awssdk.Float64(ub)
+				}
+				p.stepAdjustments = append(p.stepAdjustments, sa)
 			}
 		}
 
@@ -507,7 +548,7 @@ func parsePolicies(config map[string]any) []policySpec {
 			result = append(result, p)
 		}
 	}
-	return result
+	return result, nil
 }
 
 // putPolicy calls PutScalingPolicy for a single policySpec.
@@ -524,6 +565,9 @@ func (d *AutoScalingGroupDriver) putPolicy(ctx context.Context, ns, resourceID, 
 	case "TargetTrackingScaling":
 		if p.predefinedMetricType == "" {
 			return fmt.Errorf("put policy %q: predefined_metric_type is required for TargetTrackingScaling (e.g., ECSServiceAverageCPUUtilization)", p.policyName)
+		}
+		if p.targetValue <= 0 {
+			return fmt.Errorf("put policy %q: target_value must be > 0 for TargetTrackingScaling, got %v", p.policyName, p.targetValue)
 		}
 		in.PolicyType = aastypes.PolicyTypeTargetTrackingScaling
 		cfg := &aastypes.TargetTrackingScalingPolicyConfiguration{
