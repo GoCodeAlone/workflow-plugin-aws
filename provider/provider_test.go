@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -104,5 +105,40 @@ func TestAWSProvider_ResourceDriver_UnknownType(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no driver for resource type") {
 		t.Errorf("expected 'no driver for resource type' error, got: %v", err)
+	}
+}
+
+func TestAWSProvider_SupportedCanonicalKeys(t *testing.T) {
+	p := provider.NewAWSProvider()
+	keys := p.SupportedCanonicalKeys()
+	if len(keys) == 0 {
+		t.Fatal("expected at least one canonical key")
+	}
+	keySet := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	// Must include the full canonical key set.
+	for _, required := range interfaces.CanonicalKeys() {
+		if !keySet[required] {
+			t.Errorf("SupportedCanonicalKeys missing canonical key %q", required)
+		}
+	}
+	// Must also include the AWS-specific credential and cluster keys.
+	for _, required := range []string{"access_key_id", "secret_access_key", "ecs_cluster"} {
+		if !keySet[required] {
+			t.Errorf("SupportedCanonicalKeys missing AWS-specific key %q", required)
+		}
+	}
+}
+
+func TestAWSProvider_BootstrapStateBackend(t *testing.T) {
+	p := provider.NewAWSProvider()
+	result, err := p.BootstrapStateBackend(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BootstrapStateBackend: unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("BootstrapStateBackend: expected nil result for no-op provider, got %v", result)
 	}
 }

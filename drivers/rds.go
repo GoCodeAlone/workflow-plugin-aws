@@ -21,6 +21,7 @@ type RDSClient interface {
 
 // RDSDriver manages RDS database instances (infra.database).
 type RDSDriver struct {
+	noSensitiveKeys
 	client RDSClient
 }
 

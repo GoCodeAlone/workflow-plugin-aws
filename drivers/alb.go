@@ -21,6 +21,7 @@ type ELBv2Client interface {
 
 // ALBDriver manages Application/Network Load Balancers (infra.load_balancer).
 type ALBDriver struct {
+	noSensitiveKeys
 	client ELBv2Client
 }
 

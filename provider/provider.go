@@ -380,12 +380,16 @@ func (p *AWSProvider) ResolveSizing(resourceType string, size interfaces.Size, h
 	return resolveSizing(resourceType, size, hints)
 }
 
-// SupportedCanonicalKeys returns the full canonical IaC key set. Per the
-// interfaces.IaCProvider doc, "built-in and stub providers return the full
-// canonical key set"; this provider's drivers do not currently reject
-// unsupported keys at the provider level.
+// SupportedCanonicalKeys returns the full canonical IaC key set plus the
+// AWS-specific keys accepted by this provider (access_key_id, secret_access_key,
+// ecs_cluster).
 func (p *AWSProvider) SupportedCanonicalKeys() []string {
-	return interfaces.CanonicalKeys()
+	canonical := interfaces.CanonicalKeys()
+	awsSpecific := []string{"access_key_id", "secret_access_key", "ecs_cluster"}
+	result := make([]string, 0, len(canonical)+len(awsSpecific))
+	result = append(result, canonical...)
+	result = append(result, awsSpecific...)
+	return result
 }
 
 // BootstrapStateBackend is a no-op for this provider; AWS S3 state backends

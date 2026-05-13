@@ -24,6 +24,7 @@ type IAMClient interface {
 
 // IAMDriver manages IAM roles and policies (infra.iam_role).
 type IAMDriver struct {
+	noSensitiveKeys
 	client IAMClient
 }
 
