@@ -33,7 +33,7 @@
 |------|-------|-------|--------|
 | 1 | feat: typed-IaC conformance migration to v1.0.0 (issue #8) | Task 1, Task 2, Task 3, Task 4, Task 5, Task 6, Task 7 | feat/issue-8-typed-iac-conformance |
 
-**Status:** Draft
+**Status:** Locked 2026-05-13T00:00:00Z
 
 ---
 
