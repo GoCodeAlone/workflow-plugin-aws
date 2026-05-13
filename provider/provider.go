@@ -32,6 +32,13 @@ type AWSProvider struct {
 
 // NewAWSProvider creates a new AWS provider.
 func NewAWSProvider() interfaces.IaCProvider {
+	return NewAWSProviderConcrete()
+}
+
+// NewAWSProviderConcrete creates a new *AWSProvider (concrete type).
+// Used by internal.NewIaCServer to avoid a type assertion on the
+// interfaces.IaCProvider return of NewAWSProvider.
+func NewAWSProviderConcrete() *AWSProvider {
 	return &AWSProvider{
 		driverMap: make(map[string]interfaces.ResourceDriver),
 	}
