@@ -731,6 +731,54 @@ func TestAutoScalingGroupDriver_SensitiveKeys(t *testing.T) {
 	}
 }
 
+// ---- Diff policy config change ----
+
+func TestAutoScalingGroupDriver_Diff_PolicyConfigChange(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+
+	// Build a "current" output as if Create had run with target_value=75.
+	specWithPolicy := baseAutoScalingSpec("asg")
+	specWithPolicy.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":            "cpu-policy",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           float64(75),
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
+		},
+	}
+	// Simulate what Create stores: same policy name but the fingerprint encodes 75.
+	current := &interfaces.ResourceOutput{
+		Name:       "asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID,
+		Outputs: map[string]any{
+			"min_capacity":       1,
+			"max_capacity":       10,
+			"policy_names":       "cpu-policy",
+			"policy_fingerprint": "cpu-policy:TT:75.00:ECSServiceAverageCPUUtilization:300:300",
+		},
+	}
+
+	// Desired spec changes target_value to 60 — same policy name, different config.
+	desired := baseAutoScalingSpec("asg")
+	desired.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":            "cpu-policy",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           float64(60),
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
+		},
+	}
+
+	diff, err := d.Diff(context.Background(), desired, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when policy target_value changes (same name)")
+	}
+}
+
 // ---- Diff identity drift ----
 
 func TestAutoScalingGroupDriver_Diff_IdentityDrift(t *testing.T) {

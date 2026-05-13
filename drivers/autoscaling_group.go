@@ -106,7 +106,7 @@ func (d *AutoScalingGroupDriver) Create(ctx context.Context, spec interfaces.Res
 	}
 
 	policyNames := desiredPolicyNames(spec.Config)
-	return d.buildOutput(spec.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames), nil
+	return d.buildOutputWithConfig(spec.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames, spec.Config), nil
 }
 
 // Read describes the scalable target and its policies.
@@ -196,7 +196,7 @@ func (d *AutoScalingGroupDriver) Update(ctx context.Context, ref interfaces.Reso
 	targetARN := awssdk.ToString(out.ScalableTargetARN)
 	providerID := encodeProviderID(ns, resourceID, dim)
 	policyNames := desiredPolicyNames(spec.Config)
-	return d.buildOutput(ref.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames), nil
+	return d.buildOutputWithConfig(ref.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames, spec.Config), nil
 }
 
 // Delete removes all scaling policies then deregisters the scalable target.
@@ -233,7 +233,10 @@ func (d *AutoScalingGroupDriver) Delete(ctx context.Context, ref interfaces.Reso
 }
 
 // Diff computes whether the desired spec diverges from the current output.
-// Compares capacity bounds and the sorted set of policy names.
+// Compares capacity bounds, policy names, and a policy-config fingerprint so
+// changes to policy parameters (target_value, cooldowns, step_adjustments) are
+// also detected. The fingerprint is stored in outputs["policy_fingerprint"] by
+// buildOutput-callers that pass it.
 func (d *AutoScalingGroupDriver) Diff(_ context.Context, desired interfaces.ResourceSpec, current *interfaces.ResourceOutput) (*interfaces.DiffResult, error) {
 	if current == nil {
 		return &interfaces.DiffResult{NeedsUpdate: true}, nil
@@ -267,17 +270,24 @@ func (d *AutoScalingGroupDriver) Diff(_ context.Context, desired interfaces.Reso
 	specDim, _ := desired.Config["scalable_dimension"].(string)
 	wantProviderID := encodeProviderID(specNS, specResourceID, specDim)
 
+	// Build a deterministic fingerprint of policy configs (not just names) so changes
+	// to policy parameters (target_value, cooldowns, step_adjustments) are detected.
+	wantPolicyFingerprint := policyConfigFingerprint(desired.Config)
+
 	want := map[string]any{
-		"min_capacity": intProp(desired.Config, "min_capacity", 0),
-		"max_capacity": intProp(desired.Config, "max_capacity", 1),
-		"policy_names": wantPolicyKey,
-		"provider_id":  wantProviderID,
+		"min_capacity":        intProp(desired.Config, "min_capacity", 0),
+		"max_capacity":        intProp(desired.Config, "max_capacity", 1),
+		"policy_names":        wantPolicyKey,
+		"policy_fingerprint":  wantPolicyFingerprint,
+		"provider_id":         wantProviderID,
 	}
+	curFingerprint, _ := current.Outputs["policy_fingerprint"].(string)
 	currentForDiff := map[string]any{
-		"min_capacity": current.Outputs["min_capacity"],
-		"max_capacity": current.Outputs["max_capacity"],
-		"policy_names": curPolicyKey,
-		"provider_id":  current.ProviderID,
+		"min_capacity":       current.Outputs["min_capacity"],
+		"max_capacity":       current.Outputs["max_capacity"],
+		"policy_names":       curPolicyKey,
+		"policy_fingerprint": curFingerprint,
+		"provider_id":        current.ProviderID,
 	}
 	changes := diffOutputs(want, currentForDiff)
 	return &interfaces.DiffResult{NeedsUpdate: len(changes) > 0, Changes: changes}, nil
@@ -373,6 +383,48 @@ func (d *AutoScalingGroupDriver) buildOutput(name, targetARN, providerID string,
 		Outputs:    outputs,
 		Status:     "running",
 	}
+}
+
+// buildOutputWithConfig is like buildOutput but also stores a policy_fingerprint
+// derived from the spec config so Diff can detect policy parameter changes.
+func (d *AutoScalingGroupDriver) buildOutputWithConfig(name, targetARN, providerID string, minCap, maxCap int, policyNames []string, config map[string]any) *interfaces.ResourceOutput {
+	out := d.buildOutput(name, targetARN, providerID, minCap, maxCap, policyNames)
+	out.Outputs["policy_fingerprint"] = policyConfigFingerprint(config)
+	return out
+}
+
+// policyConfigFingerprint returns a deterministic string representation of the
+// policies config for use in Diff comparisons. It encodes key policy parameters
+// so changes to target_value, cooldowns, or step_adjustments are detected even
+// when policy names stay the same.
+func policyConfigFingerprint(config map[string]any) string {
+	policies, _ := parsePolicies(config)
+	if len(policies) == 0 {
+		return ""
+	}
+	// Sort by policy name for deterministic output.
+	sort.Slice(policies, func(i, j int) bool {
+		return policies[i].policyName < policies[j].policyName
+	})
+	parts := make([]string, 0, len(policies))
+	for _, p := range policies {
+		switch p.policyType {
+		case "TargetTrackingScaling":
+			parts = append(parts, fmt.Sprintf("%s:TT:%.2f:%s:%d:%d",
+				p.policyName, p.targetValue, p.predefinedMetricType,
+				p.scaleInCooldown, p.scaleOutCooldown))
+		case "StepScaling":
+			steps := make([]string, len(p.stepAdjustments))
+			for i, sa := range p.stepAdjustments {
+				steps[i] = fmt.Sprintf("%d", sa.scalingAdjustment)
+			}
+			parts = append(parts, fmt.Sprintf("%s:SS:%s:%d:%s",
+				p.policyName, p.adjustmentType, p.cooldown, strings.Join(steps, "+")))
+		default:
+			parts = append(parts, p.policyName+":?:"+p.policyType)
+		}
+	}
+	return strings.Join(parts, "|")
 }
 
 // fetchLivePolicies returns the current scaling policies for a scalable target.
