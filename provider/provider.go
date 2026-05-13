@@ -93,6 +93,7 @@ func (p *AWSProvider) registerDrivers(cfg awssdk.Config, ecsCluster, region stri
 		drivers.NewIAMDriver(cfg),
 		drivers.NewS3Driver(cfg, region),
 		drivers.NewACMDriver(cfg),
+		drivers.NewAutoScalingGroupDriver(cfg),
 	}
 	for _, d := range driverList {
 		p.driverMap[d.ResourceType()] = d
@@ -114,6 +115,7 @@ func (p *AWSProvider) Capabilities() []interfaces.IaCCapabilityDeclaration {
 		{ResourceType: "infra.iam_role", Tier: 1, Operations: []string{"create", "read", "update", "delete"}},
 		{ResourceType: "infra.storage", Tier: 2, Operations: []string{"create", "read", "update", "delete"}},
 		{ResourceType: "infra.certificate", Tier: 2, Operations: []string{"create", "read", "update", "delete"}},
+		{ResourceType: "infra.autoscaling_group", Tier: 2, Operations: []string{"create", "read", "update", "delete"}},
 	}
 }
 

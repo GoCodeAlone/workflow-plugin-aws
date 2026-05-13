@@ -17,6 +17,7 @@
     "infra.firewall",
     "infra.iam_role",
     "infra.storage",
-    "infra.certificate"
+    "infra.certificate",
+    "infra.autoscaling_group"
   ]
 }

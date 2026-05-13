@@ -24,8 +24,8 @@ func TestNewAWSProvider(t *testing.T) {
 func TestAWSProvider_Capabilities(t *testing.T) {
 	p := provider.NewAWSProvider()
 	caps := p.Capabilities()
-	if len(caps) != 13 {
-		t.Errorf("expected 13 capabilities, got %d", len(caps))
+	if len(caps) != 14 {
+		t.Errorf("expected 14 capabilities, got %d", len(caps))
 	}
 
 	// Verify all required resource types are present
@@ -43,6 +43,7 @@ func TestAWSProvider_Capabilities(t *testing.T) {
 		"infra.iam_role",
 		"infra.storage",
 		"infra.certificate",
+		"infra.autoscaling_group",
 	}
 	capSet := make(map[string]bool)
 	for _, c := range caps {
