@@ -17,8 +17,8 @@ func TestNewAWSProvider(t *testing.T) {
 	if p.Name() != "aws" {
 		t.Errorf("expected name aws, got %s", p.Name())
 	}
-	if p.Version() != "0.1.0" {
-		t.Errorf("expected version 0.1.0, got %s", p.Version())
+	if p.Version() != "1.0.0" {
+		t.Errorf("expected version 1.0.0, got %s", p.Version())
 	}
 }
 
