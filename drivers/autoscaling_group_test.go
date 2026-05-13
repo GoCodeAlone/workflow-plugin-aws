@@ -25,6 +25,9 @@ type mockAutoScalingClient struct {
 	putPolicyErr   error
 	deletePolicyErr error
 	deregisterErr  error
+
+	// Captured inputs for assertion.
+	capturedPutPolicyInput *applicationautoscaling.PutScalingPolicyInput
 }
 
 func (m *mockAutoScalingClient) RegisterScalableTarget(_ context.Context, _ *applicationautoscaling.RegisterScalableTargetInput, _ ...func(*applicationautoscaling.Options)) (*applicationautoscaling.RegisterScalableTargetOutput, error) {
@@ -36,7 +39,8 @@ func (m *mockAutoScalingClient) DescribeScalableTargets(_ context.Context, _ *ap
 func (m *mockAutoScalingClient) DescribeScalingPolicies(_ context.Context, _ *applicationautoscaling.DescribeScalingPoliciesInput, _ ...func(*applicationautoscaling.Options)) (*applicationautoscaling.DescribeScalingPoliciesOutput, error) {
 	return m.describePoliciesOut, m.describePoliciesErr
 }
-func (m *mockAutoScalingClient) PutScalingPolicy(_ context.Context, _ *applicationautoscaling.PutScalingPolicyInput, _ ...func(*applicationautoscaling.Options)) (*applicationautoscaling.PutScalingPolicyOutput, error) {
+func (m *mockAutoScalingClient) PutScalingPolicy(_ context.Context, in *applicationautoscaling.PutScalingPolicyInput, _ ...func(*applicationautoscaling.Options)) (*applicationautoscaling.PutScalingPolicyOutput, error) {
+	m.capturedPutPolicyInput = in
 	return m.putPolicyOut, m.putPolicyErr
 }
 func (m *mockAutoScalingClient) DeleteScalingPolicy(_ context.Context, _ *applicationautoscaling.DeleteScalingPolicyInput, _ ...func(*applicationautoscaling.Options)) (*applicationautoscaling.DeleteScalingPolicyOutput, error) {
@@ -46,20 +50,23 @@ func (m *mockAutoScalingClient) DeregisterScalableTarget(_ context.Context, _ *a
 	return &applicationautoscaling.DeregisterScalableTargetOutput{}, m.deregisterErr
 }
 
-// baseSpec returns a minimal valid ResourceSpec for infra.autoscaling_group.
+// baseAutoScalingSpec returns a minimal valid ResourceSpec for infra.autoscaling_group.
 func baseAutoScalingSpec(name string) interfaces.ResourceSpec {
 	return interfaces.ResourceSpec{
 		Name: name,
 		Type: "infra.autoscaling_group",
 		Config: map[string]any{
-			"service_namespace":   "ecs",
-			"resource_id":         "service/my-cluster/my-service",
-			"scalable_dimension":  "ecs:service:DesiredCount",
-			"min_capacity":        1,
-			"max_capacity":        10,
+			"service_namespace":  "ecs",
+			"resource_id":        "service/my-cluster/my-service",
+			"scalable_dimension": "ecs:service:DesiredCount",
+			"min_capacity":       1,
+			"max_capacity":       10,
 		},
 	}
 }
+
+// baseProviderID is the encoded ProviderID for baseAutoScalingSpec.
+const baseProviderID = "ecs|service/my-cluster/my-service|ecs:service:DesiredCount"
 
 // ---- ResourceType ----
 
@@ -101,7 +108,7 @@ func TestAutoScalingGroupDriver_Create_MissingServiceNamespace(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	spec := interfaces.ResourceSpec{
 		Name:   "asg",
-		Config: map[string]any{"resource_id": "service/c/s", "scalable_dimension": "ecs:service:DesiredCount"},
+		Config: map[string]any{"resource_id": "service/c/s", "scalable_dimension": "ecs:service:DesiredCount", "min_capacity": 1, "max_capacity": 5},
 	}
 	_, err := d.Create(context.Background(), spec)
 	if err == nil {
@@ -113,7 +120,7 @@ func TestAutoScalingGroupDriver_Create_MissingResourceID(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	spec := interfaces.ResourceSpec{
 		Name:   "asg",
-		Config: map[string]any{"service_namespace": "ecs", "scalable_dimension": "ecs:service:DesiredCount"},
+		Config: map[string]any{"service_namespace": "ecs", "scalable_dimension": "ecs:service:DesiredCount", "min_capacity": 1, "max_capacity": 5},
 	}
 	_, err := d.Create(context.Background(), spec)
 	if err == nil {
@@ -125,11 +132,47 @@ func TestAutoScalingGroupDriver_Create_MissingScalableDimension(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
 	spec := interfaces.ResourceSpec{
 		Name:   "asg",
-		Config: map[string]any{"service_namespace": "ecs", "resource_id": "service/c/s"},
+		Config: map[string]any{"service_namespace": "ecs", "resource_id": "service/c/s", "min_capacity": 1, "max_capacity": 5},
 	}
 	_, err := d.Create(context.Background(), spec)
 	if err == nil {
 		t.Fatal("expected error for missing scalable_dimension")
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_MissingMinCapacity(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	spec := interfaces.ResourceSpec{
+		Name:   "asg",
+		Config: map[string]any{"service_namespace": "ecs", "resource_id": "service/c/s", "scalable_dimension": "ecs:service:DesiredCount", "max_capacity": 5},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error for missing min_capacity")
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_MissingMaxCapacity(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	spec := interfaces.ResourceSpec{
+		Name:   "asg",
+		Config: map[string]any{"service_namespace": "ecs", "resource_id": "service/c/s", "scalable_dimension": "ecs:service:DesiredCount", "min_capacity": 1},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error for missing max_capacity")
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_InvalidCapacityRange(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	spec := interfaces.ResourceSpec{
+		Name:   "asg",
+		Config: map[string]any{"service_namespace": "ecs", "resource_id": "service/c/s", "scalable_dimension": "ecs:service:DesiredCount", "min_capacity": 10, "max_capacity": 1},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error when min_capacity > max_capacity")
 	}
 }
 
@@ -147,11 +190,12 @@ func TestAutoScalingGroupDriver_Create_WithTargetTrackingPolicy(t *testing.T) {
 	spec := baseAutoScalingSpec("my-asg")
 	spec.Config["policies"] = []any{
 		map[string]any{
-			"policy_name":   "cpu-tracking",
-			"policy_type":   "TargetTrackingScaling",
-			"target_value":  float64(75),
-			"scale_in_cooldown":  int(300),
-			"scale_out_cooldown": int(60),
+			"policy_name":            "cpu-tracking",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           float64(75),
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
+			"scale_in_cooldown":      int(300),
+			"scale_out_cooldown":     int(60),
 		},
 	}
 	out, err := d.Create(context.Background(), spec)
@@ -160,6 +204,48 @@ func TestAutoScalingGroupDriver_Create_WithTargetTrackingPolicy(t *testing.T) {
 	}
 	if out == nil {
 		t.Fatal("expected non-nil output")
+	}
+	// Assert the PutScalingPolicyInput was built correctly.
+	captured := mock.capturedPutPolicyInput
+	if captured == nil {
+		t.Fatal("expected PutScalingPolicy to have been called")
+	}
+	if captured.PolicyType != aastypes.PolicyTypeTargetTrackingScaling {
+		t.Errorf("expected TargetTrackingScaling, got %v", captured.PolicyType)
+	}
+	ttCfg := captured.TargetTrackingScalingPolicyConfiguration
+	if ttCfg == nil {
+		t.Fatal("expected TargetTrackingScalingPolicyConfiguration to be set")
+	}
+	if awssdk.ToFloat64(ttCfg.TargetValue) != 75 {
+		t.Errorf("expected TargetValue=75, got %v", awssdk.ToFloat64(ttCfg.TargetValue))
+	}
+	if ttCfg.PredefinedMetricSpecification == nil {
+		t.Fatal("expected PredefinedMetricSpecification to be set")
+	}
+	if string(ttCfg.PredefinedMetricSpecification.PredefinedMetricType) != "ECSServiceAverageCPUUtilization" {
+		t.Errorf("expected ECSServiceAverageCPUUtilization, got %v", ttCfg.PredefinedMetricSpecification.PredefinedMetricType)
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_TargetTracking_MissingMetricType(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		registerOut:         &applicationautoscaling.RegisterScalableTargetOutput{ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc")},
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	spec := baseAutoScalingSpec("my-asg")
+	spec.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":  "cpu-tracking",
+			"policy_type":  "TargetTrackingScaling",
+			"target_value": float64(75),
+			// predefined_metric_type intentionally omitted
+		},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error when predefined_metric_type is missing for TargetTrackingScaling")
 	}
 }
 
@@ -175,9 +261,16 @@ func TestAutoScalingGroupDriver_Create_WithStepScalingPolicy(t *testing.T) {
 	spec := baseAutoScalingSpec("my-asg")
 	spec.Config["policies"] = []any{
 		map[string]any{
-			"policy_name":    "step-out",
-			"policy_type":    "StepScaling",
-			"scale_out_cooldown": int(60),
+			"policy_name":     "step-out",
+			"policy_type":     "StepScaling",
+			"adjustment_type": "ChangeInCapacity",
+			"step_adjustments": []any{
+				map[string]any{
+					"metric_interval_lower_bound": float64(0),
+					"scaling_adjustment":          int(2),
+				},
+			},
+			"cooldown": int(60),
 		},
 	}
 	out, err := d.Create(context.Background(), spec)
@@ -186,6 +279,68 @@ func TestAutoScalingGroupDriver_Create_WithStepScalingPolicy(t *testing.T) {
 	}
 	if out == nil {
 		t.Fatal("expected non-nil output")
+	}
+	// Assert PutScalingPolicyInput fields for StepScaling.
+	captured := mock.capturedPutPolicyInput
+	if captured == nil {
+		t.Fatal("expected PutScalingPolicy to have been called")
+	}
+	if captured.PolicyType != aastypes.PolicyTypeStepScaling {
+		t.Errorf("expected StepScaling, got %v", captured.PolicyType)
+	}
+	stCfg := captured.StepScalingPolicyConfiguration
+	if stCfg == nil {
+		t.Fatal("expected StepScalingPolicyConfiguration to be set")
+	}
+	if string(stCfg.AdjustmentType) != "ChangeInCapacity" {
+		t.Errorf("expected AdjustmentType=ChangeInCapacity, got %v", stCfg.AdjustmentType)
+	}
+	if len(stCfg.StepAdjustments) != 1 {
+		t.Errorf("expected 1 step adjustment, got %d", len(stCfg.StepAdjustments))
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_StepScaling_MissingAdjustmentType(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		registerOut:         &applicationautoscaling.RegisterScalableTargetOutput{ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc")},
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	spec := baseAutoScalingSpec("my-asg")
+	spec.Config["policies"] = []any{
+		map[string]any{
+			"policy_name": "step-out",
+			"policy_type": "StepScaling",
+			// adjustment_type intentionally omitted
+			"step_adjustments": []any{
+				map[string]any{"metric_interval_lower_bound": float64(0), "scaling_adjustment": int(2)},
+			},
+		},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error when adjustment_type is missing for StepScaling")
+	}
+}
+
+func TestAutoScalingGroupDriver_Create_StepScaling_MissingStepAdjustments(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		registerOut:         &applicationautoscaling.RegisterScalableTargetOutput{ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc")},
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	spec := baseAutoScalingSpec("my-asg")
+	spec.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":     "step-out",
+			"policy_type":     "StepScaling",
+			"adjustment_type": "ChangeInCapacity",
+			// step_adjustments intentionally omitted
+		},
+	}
+	_, err := d.Create(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error when step_adjustments is missing for StepScaling")
 	}
 }
 
@@ -207,15 +362,17 @@ func TestAutoScalingGroupDriver_Create_PutPolicyError(t *testing.T) {
 		registerOut: &applicationautoscaling.RegisterScalableTargetOutput{
 			ScalableTargetARN: awssdk.String("arn:aws:application-autoscaling:us-east-1:123:scalable-target/abc"),
 		},
-		putPolicyErr: fmt.Errorf("invalid policy configuration"),
+		putPolicyErr:        fmt.Errorf("invalid policy configuration"),
+		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
 	spec := baseAutoScalingSpec("my-asg")
 	spec.Config["policies"] = []any{
 		map[string]any{
-			"policy_name":  "bad-policy",
-			"policy_type":  "TargetTrackingScaling",
-			"target_value": float64(50),
+			"policy_name":            "bad-policy",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           float64(50),
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
 		},
 	}
 	_, err := d.Create(context.Background(), spec)
@@ -243,12 +400,26 @@ func TestAutoScalingGroupDriver_Read(t *testing.T) {
 		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
-	out, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "my-asg", Type: "infra.autoscaling_group"})
+	// ProviderID is required for Read; pass a realistic encoded value.
+	out, err := d.Read(context.Background(), interfaces.ResourceRef{
+		Name:       "my-asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID,
+	})
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if out.Name != "my-asg" {
 		t.Errorf("expected name my-asg, got %s", out.Name)
+	}
+}
+
+func TestAutoScalingGroupDriver_Read_MissingProviderID(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	// Read without ProviderID must return an error.
+	_, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "my-asg", Type: "infra.autoscaling_group"})
+	if err == nil {
+		t.Fatal("expected error when ProviderID is missing")
 	}
 }
 
@@ -259,7 +430,7 @@ func TestAutoScalingGroupDriver_Read_NotFound(t *testing.T) {
 		},
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
-	_, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "missing-asg", Type: "infra.autoscaling_group"})
+	_, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "missing-asg", Type: "infra.autoscaling_group", ProviderID: baseProviderID})
 	if err == nil {
 		t.Fatal("expected error for not-found scalable target")
 	}
@@ -270,7 +441,7 @@ func TestAutoScalingGroupDriver_Read_DescribeError(t *testing.T) {
 		describeErr: fmt.Errorf("service unavailable"),
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
-	_, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "my-asg", Type: "infra.autoscaling_group"})
+	_, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "my-asg", Type: "infra.autoscaling_group", ProviderID: baseProviderID})
 	if err == nil {
 		t.Fatal("expected error when DescribeScalableTargets fails")
 	}
@@ -334,11 +505,11 @@ func TestAutoScalingGroupDriver_Update_RemovesStalePolicies(t *testing.T) {
 		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{
 			ScalingPolicies: []aastypes.ScalingPolicy{
 				{
-					PolicyName:       awssdk.String("old-policy"),
-					PolicyARN:        awssdk.String("arn:aws:autoscaling:policy/old"),
-					ResourceId:       awssdk.String("service/my-cluster/my-service"),
+					PolicyName:        awssdk.String("old-policy"),
+					PolicyARN:         awssdk.String("arn:aws:autoscaling:policy/old"),
+					ResourceId:        awssdk.String("service/my-cluster/my-service"),
 					ScalableDimension: aastypes.ScalableDimensionECSServiceDesiredCount,
-					ServiceNamespace: aastypes.ServiceNamespaceEcs,
+					ServiceNamespace:  aastypes.ServiceNamespaceEcs,
 				},
 			},
 		},
@@ -383,10 +554,9 @@ func TestAutoScalingGroupDriver_Delete(t *testing.T) {
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
 	err := d.Delete(context.Background(), interfaces.ResourceRef{
-		Name: "my-asg",
-		Type: "infra.autoscaling_group",
-		// ProviderID encodes "namespace/resource_id/scalable_dimension"
-		ProviderID: "ecs|service/my-cluster/my-service|ecs:service:DesiredCount",
+		Name:       "my-asg",
+		Type:       "infra.autoscaling_group",
+		ProviderID: baseProviderID,
 	})
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
@@ -401,10 +571,24 @@ func TestAutoScalingGroupDriver_Delete_Error(t *testing.T) {
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
 	err := d.Delete(context.Background(), interfaces.ResourceRef{
 		Name:       "my-asg",
-		ProviderID: "ecs|service/my-cluster/my-service|ecs:service:DesiredCount",
+		ProviderID: baseProviderID,
 	})
 	if err == nil {
 		t.Fatal("expected error when DeregisterScalableTarget fails")
+	}
+}
+
+func TestAutoScalingGroupDriver_Delete_FetchPoliciesError(t *testing.T) {
+	mock := &mockAutoScalingClient{
+		describePoliciesErr: fmt.Errorf("api throttled"),
+	}
+	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
+	err := d.Delete(context.Background(), interfaces.ResourceRef{
+		Name:       "my-asg",
+		ProviderID: baseProviderID,
+	})
+	if err == nil {
+		t.Fatal("expected error when DescribeScalingPolicies fails during delete")
 	}
 }
 
@@ -426,7 +610,7 @@ func TestAutoScalingGroupDriver_Diff_HasChanges(t *testing.T) {
 	current := &interfaces.ResourceOutput{
 		Name:    "asg",
 		Type:    "infra.autoscaling_group",
-		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 5},
+		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 5, "policy_names": ""},
 	}
 	spec := baseAutoScalingSpec("asg")
 	spec.Config["max_capacity"] = 20
@@ -444,7 +628,7 @@ func TestAutoScalingGroupDriver_Diff_NoChanges(t *testing.T) {
 	current := &interfaces.ResourceOutput{
 		Name:    "asg",
 		Type:    "infra.autoscaling_group",
-		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 10},
+		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": ""},
 	}
 	diff, err := d.Diff(context.Background(), baseAutoScalingSpec("asg"), current)
 	if err != nil {
@@ -452,6 +636,32 @@ func TestAutoScalingGroupDriver_Diff_NoChanges(t *testing.T) {
 	}
 	if diff.NeedsUpdate {
 		t.Error("expected NeedsUpdate=false when config unchanged")
+	}
+}
+
+func TestAutoScalingGroupDriver_Diff_PolicyChange(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	current := &interfaces.ResourceOutput{
+		Name:    "asg",
+		Type:    "infra.autoscaling_group",
+		Outputs: map[string]any{"min_capacity": 1, "max_capacity": 10, "policy_names": []string{"old-policy"}},
+	}
+	// Desired spec has a different policy set.
+	spec := baseAutoScalingSpec("asg")
+	spec.Config["policies"] = []any{
+		map[string]any{
+			"policy_name":            "new-policy",
+			"policy_type":            "TargetTrackingScaling",
+			"target_value":           float64(75),
+			"predefined_metric_type": "ECSServiceAverageCPUUtilization",
+		},
+	}
+	diff, err := d.Diff(context.Background(), spec, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.NeedsUpdate {
+		t.Error("expected NeedsUpdate=true when policy set changes")
 	}
 }
 
@@ -474,7 +684,7 @@ func TestAutoScalingGroupDriver_HealthCheck_Healthy(t *testing.T) {
 		describePoliciesOut: &applicationautoscaling.DescribeScalingPoliciesOutput{},
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
-	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-asg"})
+	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-asg", ProviderID: baseProviderID})
 	if err != nil {
 		t.Fatalf("HealthCheck failed: %v", err)
 	}
@@ -488,12 +698,24 @@ func TestAutoScalingGroupDriver_HealthCheck_Unhealthy(t *testing.T) {
 		describeErr: fmt.Errorf("resource not found"),
 	}
 	d := drivers.NewAutoScalingGroupDriverWithClient(mock)
-	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-asg"})
+	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-asg", ProviderID: baseProviderID})
 	if err != nil {
 		t.Fatalf("HealthCheck returned unexpected error: %v", err)
 	}
 	if health.Healthy {
 		t.Error("expected unhealthy when Read fails")
+	}
+}
+
+func TestAutoScalingGroupDriver_HealthCheck_MissingProviderID(t *testing.T) {
+	d := drivers.NewAutoScalingGroupDriverWithClient(&mockAutoScalingClient{})
+	health, err := d.HealthCheck(context.Background(), interfaces.ResourceRef{Name: "my-asg"})
+	if err != nil {
+		t.Fatalf("HealthCheck returned unexpected error: %v", err)
+	}
+	// HealthCheck should return Healthy=false (not an error) when ProviderID is missing.
+	if health.Healthy {
+		t.Error("expected unhealthy when ProviderID is missing")
 	}
 }
 

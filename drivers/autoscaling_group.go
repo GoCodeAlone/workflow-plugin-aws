@@ -3,6 +3,7 @@ package drivers
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -22,18 +23,32 @@ type AutoScalingClient interface {
 	DeregisterScalableTarget(ctx context.Context, params *applicationautoscaling.DeregisterScalableTargetInput, optFns ...func(*applicationautoscaling.Options)) (*applicationautoscaling.DeregisterScalableTargetOutput, error)
 }
 
-// AutoScalingGroupDriver manages Application Auto Scaling targets (infra.autoscaling_group).
+// AutoScalingGroupDriver manages AWS Application Auto Scaling targets (infra.autoscaling_group).
+//
+// This driver wraps the AWS Application Auto Scaling service, which manages scalable targets
+// for services like ECS, DynamoDB, RDS, etc. It is NOT an EC2 Auto Scaling Group driver.
 //
 // Config keys:
-//   - service_namespace (string, required) — e.g., "ecs", "dynamodb", "rds"
-//   - resource_id       (string, required) — e.g., "service/cluster/service-name"
+//   - service_namespace  (string, required) — e.g., "ecs", "dynamodb", "rds"
+//   - resource_id        (string, required) — e.g., "service/cluster/service-name"
 //   - scalable_dimension (string, required) — e.g., "ecs:service:DesiredCount"
-//   - min_capacity      (int, required)
-//   - max_capacity      (int, required)
-//   - role_arn          (string, optional)
-//   - policies          ([]any, optional) — each map with keys: policy_name, policy_type,
-//     target_value (TargetTracking), scale_in_cooldown, scale_out_cooldown (StepScaling)
+//   - min_capacity       (int, required)    — must be >= 0
+//   - max_capacity       (int, required)    — must be >= min_capacity
+//   - role_arn           (string, optional)
+//   - policies           ([]any, optional)  — each map with keys:
+//     * policy_name             (string, required)
+//     * policy_type             (string, required) — "TargetTrackingScaling" or "StepScaling"
+//     For TargetTrackingScaling:
+//     * target_value            (float64, required)
+//     * predefined_metric_type  (string, required) — e.g., "ECSServiceAverageCPUUtilization"
+//     * scale_in_cooldown       (int, optional, default 300)
+//     * scale_out_cooldown      (int, optional, default 300)
+//     For StepScaling:
+//     * adjustment_type         (string, required) — e.g., "ChangeInCapacity"
+//     * step_adjustments        ([]any, required)  — each map with metric_interval_lower_bound, scaling_adjustment
+//     * cooldown                (int, optional, default 300)
 type AutoScalingGroupDriver struct {
+	noSensitiveKeys
 	client AutoScalingClient
 }
 
@@ -56,8 +71,10 @@ func (d *AutoScalingGroupDriver) Create(ctx context.Context, spec interfaces.Res
 		return nil, fmt.Errorf("autoscaling_group: create %q: %w", spec.Name, err)
 	}
 
-	minCap := int32(intProp(spec.Config, "min_capacity", 0))
-	maxCap := int32(intProp(spec.Config, "max_capacity", 1))
+	minCap, maxCap, err := validateCapacity(spec.Config)
+	if err != nil {
+		return nil, fmt.Errorf("autoscaling_group: create %q: %w", spec.Name, err)
+	}
 	roleARN, _ := spec.Config["role_arn"].(string)
 
 	in := &applicationautoscaling.RegisterScalableTargetInput{
@@ -79,33 +96,31 @@ func (d *AutoScalingGroupDriver) Create(ctx context.Context, spec interfaces.Res
 	targetARN := awssdk.ToString(out.ScalableTargetARN)
 	providerID := encodeProviderID(ns, resourceID, dim)
 
-	if err := d.syncPolicies(ctx, spec, ns, resourceID, dim, nil); err != nil {
+	// Fetch live policies (handles idempotent re-runs) before syncing.
+	livePolicies, err := d.fetchLivePolicies(ctx, ns, resourceID, dim)
+	if err != nil {
+		return nil, fmt.Errorf("autoscaling_group: create %q: fetch policies: %w", spec.Name, err)
+	}
+	if err := d.syncPolicies(ctx, spec, ns, resourceID, dim, livePolicies); err != nil {
 		return nil, fmt.Errorf("autoscaling_group: create %q: apply policies: %w", spec.Name, err)
 	}
 
-	return d.buildOutput(spec.Name, targetARN, providerID, int(minCap), int(maxCap), nil), nil
+	policyNames := desiredPolicyNames(spec.Config)
+	return d.buildOutput(spec.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames), nil
 }
 
 // Read describes the scalable target and its policies.
+// ProviderID is required (format: "namespace|resource_id|scalable_dimension").
 func (d *AutoScalingGroupDriver) Read(ctx context.Context, ref interfaces.ResourceRef) (*interfaces.ResourceOutput, error) {
 	ns, resourceID, dim := decodeProviderID(ref.ProviderID)
-
-	// If ProviderID is not set, we can only look up by namespace annotation stored in the ref.
-	// Fall back to the ref type context — caller must ensure ProviderID is populated for precise lookup.
 	if ns == "" {
-		// Use ref.Name as a best-effort resource_id if no ProviderID.
-		ns = "ecs" // default namespace for graceful degradation
+		return nil, fmt.Errorf("autoscaling_group: read %q: ProviderID is required (format: namespace|resource_id|dimension)", ref.Name)
 	}
 
 	out, err := d.client.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
-		ServiceNamespace: aastypes.ServiceNamespace(ns),
-		ResourceIds:      resourceIDFilter(resourceID, ref.Name),
-		ScalableDimension: func() aastypes.ScalableDimension {
-			if dim != "" {
-				return aastypes.ScalableDimension(dim)
-			}
-			return ""
-		}(),
+		ServiceNamespace:  aastypes.ServiceNamespace(ns),
+		ResourceIds:       []string{resourceID},
+		ScalableDimension: aastypes.ScalableDimension(dim),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("autoscaling_group: describe %q: %w", ref.Name, err)
@@ -131,8 +146,10 @@ func (d *AutoScalingGroupDriver) Update(ctx context.Context, ref interfaces.Reso
 		return nil, fmt.Errorf("autoscaling_group: update %q: %w", ref.Name, err)
 	}
 
-	minCap := int32(intProp(spec.Config, "min_capacity", 0))
-	maxCap := int32(intProp(spec.Config, "max_capacity", 1))
+	minCap, maxCap, err := validateCapacity(spec.Config)
+	if err != nil {
+		return nil, fmt.Errorf("autoscaling_group: update %q: %w", ref.Name, err)
+	}
 	roleARN, _ := spec.Config["role_arn"].(string)
 
 	in := &applicationautoscaling.RegisterScalableTargetInput{
@@ -152,7 +169,10 @@ func (d *AutoScalingGroupDriver) Update(ctx context.Context, ref interfaces.Reso
 	}
 
 	// Fetch current live policies so we can delete any that are removed from the spec.
-	livePolicies := d.fetchLivePolicies(ctx, ns, resourceID, dim)
+	livePolicies, err := d.fetchLivePolicies(ctx, ns, resourceID, dim)
+	if err != nil {
+		return nil, fmt.Errorf("autoscaling_group: update %q: fetch policies: %w", ref.Name, err)
+	}
 
 	if err := d.syncPolicies(ctx, spec, ns, resourceID, dim, livePolicies); err != nil {
 		return nil, fmt.Errorf("autoscaling_group: update %q: sync policies: %w", ref.Name, err)
@@ -160,7 +180,8 @@ func (d *AutoScalingGroupDriver) Update(ctx context.Context, ref interfaces.Reso
 
 	targetARN := awssdk.ToString(out.ScalableTargetARN)
 	providerID := encodeProviderID(ns, resourceID, dim)
-	return d.buildOutput(ref.Name, targetARN, providerID, int(minCap), int(maxCap), nil), nil
+	policyNames := desiredPolicyNames(spec.Config)
+	return d.buildOutput(ref.Name, targetARN, providerID, int(minCap), int(maxCap), policyNames), nil
 }
 
 // Delete removes all scaling policies then deregisters the scalable target.
@@ -170,8 +191,11 @@ func (d *AutoScalingGroupDriver) Delete(ctx context.Context, ref interfaces.Reso
 		return fmt.Errorf("autoscaling_group: delete %q: ProviderID is required (format: namespace|resource_id|dimension)", ref.Name)
 	}
 
-	// Delete all existing policies first.
-	livePolicies := d.fetchLivePolicies(ctx, ns, resourceID, dim)
+	// Delete all existing policies first; errors here block the delete to avoid orphaned targets.
+	livePolicies, err := d.fetchLivePolicies(ctx, ns, resourceID, dim)
+	if err != nil {
+		return fmt.Errorf("autoscaling_group: delete %q: fetch policies: %w", ref.Name, err)
+	}
 	for _, p := range livePolicies {
 		if _, err := d.client.DeleteScalingPolicy(ctx, &applicationautoscaling.DeleteScalingPolicyInput{
 			PolicyName:        p.PolicyName,
@@ -194,20 +218,50 @@ func (d *AutoScalingGroupDriver) Delete(ctx context.Context, ref interfaces.Reso
 }
 
 // Diff computes whether the desired spec diverges from the current output.
+// Compares capacity bounds and the sorted set of policy names.
 func (d *AutoScalingGroupDriver) Diff(_ context.Context, desired interfaces.ResourceSpec, current *interfaces.ResourceOutput) (*interfaces.DiffResult, error) {
 	if current == nil {
 		return &interfaces.DiffResult{NeedsUpdate: true}, nil
 	}
-	// Compare the fields we surface in outputs.
+
+	// Build a deterministic policy-name fingerprint for comparison.
+	wantPolicies := desiredPolicyNames(desired.Config)
+	sort.Strings(wantPolicies)
+	wantPolicyKey := strings.Join(wantPolicies, ",")
+
+	// Extract current policy names from outputs.
+	var curPolicies []string
+	if pn, ok := current.Outputs["policy_names"]; ok {
+		switch v := pn.(type) {
+		case []string:
+			curPolicies = v
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					curPolicies = append(curPolicies, s)
+				}
+			}
+		}
+	}
+	sort.Strings(curPolicies)
+	curPolicyKey := strings.Join(curPolicies, ",")
+
 	want := map[string]any{
 		"min_capacity": intProp(desired.Config, "min_capacity", 0),
 		"max_capacity": intProp(desired.Config, "max_capacity", 1),
+		"policy_names": wantPolicyKey,
 	}
-	changes := diffOutputs(want, current.Outputs)
+	currentForDiff := map[string]any{
+		"min_capacity": current.Outputs["min_capacity"],
+		"max_capacity": current.Outputs["max_capacity"],
+		"policy_names": curPolicyKey,
+	}
+	changes := diffOutputs(want, currentForDiff)
 	return &interfaces.DiffResult{NeedsUpdate: len(changes) > 0, Changes: changes}, nil
 }
 
 // HealthCheck returns healthy if the scalable target is readable.
+// ProviderID is required.
 func (d *AutoScalingGroupDriver) HealthCheck(ctx context.Context, ref interfaces.ResourceRef) (*interfaces.HealthResult, error) {
 	_, err := d.Read(ctx, ref)
 	if err != nil {
@@ -221,10 +275,33 @@ func (d *AutoScalingGroupDriver) Scale(_ context.Context, _ interfaces.ResourceR
 	return nil, fmt.Errorf("autoscaling_group: use Update with max_capacity to resize")
 }
 
-// SensitiveKeys returns output keys whose values should be masked in logs.
-func (d *AutoScalingGroupDriver) SensitiveKeys() []string { return nil }
-
 // ---- helpers ----
+
+// validateCapacity extracts min/max_capacity, enforcing presence and min<=max.
+func validateCapacity(config map[string]any) (minCap, maxCap int32, err error) {
+	minRaw, minOK := config["min_capacity"]
+	maxRaw, maxOK := config["max_capacity"]
+	if !minOK {
+		return 0, 0, fmt.Errorf("min_capacity is required")
+	}
+	if !maxOK {
+		return 0, 0, fmt.Errorf("max_capacity is required")
+	}
+	minI := intProp(config, "min_capacity", -1)
+	maxI := intProp(config, "max_capacity", -1)
+	_ = minRaw
+	_ = maxRaw
+	if minI < 0 {
+		return 0, 0, fmt.Errorf("min_capacity must be a non-negative integer")
+	}
+	if maxI < 0 {
+		return 0, 0, fmt.Errorf("max_capacity must be a non-negative integer")
+	}
+	if minI > maxI {
+		return 0, 0, fmt.Errorf("min_capacity (%d) must not exceed max_capacity (%d)", minI, maxI)
+	}
+	return int32(minI), int32(maxI), nil
+}
 
 // requiredAutoScalingFields extracts and validates the three required config fields.
 func requiredAutoScalingFields(spec interfaces.ResourceSpec) (ns, resourceID, dim string, err error) {
@@ -258,18 +335,6 @@ func decodeProviderID(providerID string) (ns, resourceID, dim string) {
 	return parts[0], parts[1], parts[2]
 }
 
-// resourceIDFilter returns a []string filter suitable for DescribeScalableTargets ResourceIds.
-// If resourceID is non-empty, filter by it; otherwise use the ref name as a fallback.
-func resourceIDFilter(resourceID, refName string) []string {
-	if resourceID != "" {
-		return []string{resourceID}
-	}
-	if refName != "" {
-		return []string{refName}
-	}
-	return nil
-}
-
 // buildOutput constructs a ResourceOutput from a scalable target's fields.
 func (d *AutoScalingGroupDriver) buildOutput(name, targetARN, providerID string, minCap, maxCap int, policyNames []string) *interfaces.ResourceOutput {
 	outputs := map[string]any{
@@ -292,25 +357,41 @@ func (d *AutoScalingGroupDriver) buildOutput(name, targetARN, providerID string,
 }
 
 // fetchLivePolicies returns the current scaling policies for a scalable target.
-// Errors are swallowed — callers handle absence gracefully.
-func (d *AutoScalingGroupDriver) fetchLivePolicies(ctx context.Context, ns, resourceID, dim string) []aastypes.ScalingPolicy {
+// Returns an error so callers can decide whether to abort destructive operations.
+func (d *AutoScalingGroupDriver) fetchLivePolicies(ctx context.Context, ns, resourceID, dim string) ([]aastypes.ScalingPolicy, error) {
 	out, err := d.client.DescribeScalingPolicies(ctx, &applicationautoscaling.DescribeScalingPoliciesInput{
 		ServiceNamespace:  aastypes.ServiceNamespace(ns),
 		ResourceId:        awssdk.String(resourceID),
 		ScalableDimension: aastypes.ScalableDimension(dim),
 	})
-	if err != nil || out == nil {
-		return nil
+	if err != nil {
+		return nil, err
 	}
-	return out.ScalingPolicies
+	if out == nil {
+		return nil, nil
+	}
+	return out.ScalingPolicies, nil
 }
 
 // readPolicyNames fetches policy names for a ScalableTarget; returns nil on error.
 func (d *AutoScalingGroupDriver) readPolicyNames(ctx context.Context, target aastypes.ScalableTarget) []string {
-	policies := d.fetchLivePolicies(ctx, string(target.ServiceNamespace), awssdk.ToString(target.ResourceId), string(target.ScalableDimension))
+	policies, err := d.fetchLivePolicies(ctx, string(target.ServiceNamespace), awssdk.ToString(target.ResourceId), string(target.ScalableDimension))
+	if err != nil {
+		return nil
+	}
 	var names []string
 	for _, p := range policies {
 		names = append(names, awssdk.ToString(p.PolicyName))
+	}
+	return names
+}
+
+// desiredPolicyNames returns the policy_name values from the spec config.
+func desiredPolicyNames(config map[string]any) []string {
+	policies := parsePolicies(config)
+	names := make([]string, 0, len(policies))
+	for _, p := range policies {
+		names = append(names, p.policyName)
 	}
 	return names
 }
@@ -354,9 +435,22 @@ func (d *AutoScalingGroupDriver) syncPolicies(ctx context.Context, spec interfac
 type policySpec struct {
 	policyName       string
 	policyType       string
-	targetValue      float64
-	scaleInCooldown  int32
-	scaleOutCooldown int32
+	// TargetTrackingScaling fields
+	targetValue          float64
+	predefinedMetricType string
+	scaleInCooldown      int32
+	scaleOutCooldown     int32
+	// StepScaling fields
+	adjustmentType   string
+	stepAdjustments  []stepAdjustment
+	cooldown         int32
+}
+
+// stepAdjustment represents one step in a StepScaling policy.
+type stepAdjustment struct {
+	metricIntervalLowerBound *float64
+	metricIntervalUpperBound *float64
+	scalingAdjustment        int32
 }
 
 // parsePolicies extracts the policies slice from config.
@@ -381,8 +475,34 @@ func parsePolicies(config map[string]any) []policySpec {
 		if tv, ok := m["target_value"].(float64); ok {
 			p.targetValue = tv
 		}
+		p.predefinedMetricType, _ = m["predefined_metric_type"].(string)
 		p.scaleInCooldown = int32(intProp(m, "scale_in_cooldown", 300))
 		p.scaleOutCooldown = int32(intProp(m, "scale_out_cooldown", 300))
+		p.adjustmentType, _ = m["adjustment_type"].(string)
+		p.cooldown = int32(intProp(m, "cooldown", 300))
+
+		// Parse step_adjustments for StepScaling.
+		if saRaw, ok := m["step_adjustments"]; ok {
+			if saItems, ok := saRaw.([]any); ok {
+				for _, saItem := range saItems {
+					saMap, ok := saItem.(map[string]any)
+					if !ok {
+						continue
+					}
+					sa := stepAdjustment{
+						scalingAdjustment: int32(intProp(saMap, "scaling_adjustment", 0)),
+					}
+					if lb, ok := saMap["metric_interval_lower_bound"].(float64); ok {
+						sa.metricIntervalLowerBound = awssdk.Float64(lb)
+					}
+					if ub, ok := saMap["metric_interval_upper_bound"].(float64); ok {
+						sa.metricIntervalUpperBound = awssdk.Float64(ub)
+					}
+					p.stepAdjustments = append(p.stepAdjustments, sa)
+				}
+			}
+		}
+
 		if p.policyName != "" {
 			result = append(result, p)
 		}
@@ -391,7 +511,7 @@ func parsePolicies(config map[string]any) []policySpec {
 }
 
 // putPolicy calls PutScalingPolicy for a single policySpec.
-// Both TargetTrackingScaling and StepScaling are supported.
+// Both TargetTrackingScaling and StepScaling are supported with their required fields.
 func (d *AutoScalingGroupDriver) putPolicy(ctx context.Context, ns, resourceID, dim string, p policySpec) error {
 	in := &applicationautoscaling.PutScalingPolicyInput{
 		PolicyName:        awssdk.String(p.policyName),
@@ -402,25 +522,43 @@ func (d *AutoScalingGroupDriver) putPolicy(ctx context.Context, ns, resourceID, 
 
 	switch p.policyType {
 	case "TargetTrackingScaling":
+		if p.predefinedMetricType == "" {
+			return fmt.Errorf("put policy %q: predefined_metric_type is required for TargetTrackingScaling (e.g., ECSServiceAverageCPUUtilization)", p.policyName)
+		}
 		in.PolicyType = aastypes.PolicyTypeTargetTrackingScaling
 		cfg := &aastypes.TargetTrackingScalingPolicyConfiguration{
-			TargetValue:      awssdk.Float64(p.targetValue),
+			TargetValue: awssdk.Float64(p.targetValue),
+			PredefinedMetricSpecification: &aastypes.PredefinedMetricSpecification{
+				PredefinedMetricType: aastypes.MetricType(p.predefinedMetricType),
+			},
 			ScaleInCooldown:  awssdk.Int32(p.scaleInCooldown),
 			ScaleOutCooldown: awssdk.Int32(p.scaleOutCooldown),
 		}
 		in.TargetTrackingScalingPolicyConfiguration = cfg
 	case "StepScaling":
+		if p.adjustmentType == "" {
+			return fmt.Errorf("put policy %q: adjustment_type is required for StepScaling (e.g., ChangeInCapacity)", p.policyName)
+		}
+		if len(p.stepAdjustments) == 0 {
+			return fmt.Errorf("put policy %q: step_adjustments is required for StepScaling (at least one step)", p.policyName)
+		}
 		in.PolicyType = aastypes.PolicyTypeStepScaling
+		steps := make([]aastypes.StepAdjustment, len(p.stepAdjustments))
+		for i, sa := range p.stepAdjustments {
+			steps[i] = aastypes.StepAdjustment{
+				ScalingAdjustment:        awssdk.Int32(sa.scalingAdjustment),
+				MetricIntervalLowerBound:   sa.metricIntervalLowerBound,
+				MetricIntervalUpperBound:   sa.metricIntervalUpperBound,
+			}
+		}
 		cfg := &aastypes.StepScalingPolicyConfiguration{
-			Cooldown: awssdk.Int32(p.scaleOutCooldown),
+			AdjustmentType:  aastypes.AdjustmentType(p.adjustmentType),
+			StepAdjustments: steps,
+			Cooldown:        awssdk.Int32(p.cooldown),
 		}
 		in.StepScalingPolicyConfiguration = cfg
 	default:
-		// Unknown policy type: default to TargetTracking so the API can validate.
-		in.PolicyType = aastypes.PolicyTypeTargetTrackingScaling
-		in.TargetTrackingScalingPolicyConfiguration = &aastypes.TargetTrackingScalingPolicyConfiguration{
-			TargetValue: awssdk.Float64(p.targetValue),
-		}
+		return fmt.Errorf("put policy %q: unsupported policy_type %q (must be TargetTrackingScaling or StepScaling)", p.policyName, p.policyType)
 	}
 
 	if _, err := d.client.PutScalingPolicy(ctx, in); err != nil {
