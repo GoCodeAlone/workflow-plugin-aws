@@ -18,7 +18,7 @@ import (
 
 const (
 	ProviderName    = "aws"
-	ProviderVersion = "0.1.0"
+	ProviderVersion = "1.0.0"
 )
 
 // AWSProvider implements interfaces.IaCProvider for Amazon Web Services.
