@@ -16,7 +16,8 @@
       "iac.provider"
     ],
     "stepTypes": [],
-    "triggerTypes": []
+    "triggerTypes": [],
+    "iacStateBackends": ["s3"]
   },
   "downloads": [
     {
