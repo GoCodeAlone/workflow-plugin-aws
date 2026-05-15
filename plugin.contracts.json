@@ -6,6 +6,25 @@
       "type": "iac.provider",
       "mode": "strict",
       "config": "workflow.plugins.aws.v1.AWSProviderConfig"
+    },
+    {
+      "kind": "module",
+      "type": "aws.credentials",
+      "mode": "strict",
+      "config": "workflow.plugins.aws.v1.AWSCredentialsConfig"
+    },
+    {
+      "kind": "module",
+      "type": "storage.s3",
+      "mode": "strict",
+      "config": "workflow.plugins.aws.v1.S3StorageConfig"
+    },
+    {
+      "kind": "step",
+      "type": "step.s3_upload",
+      "mode": "strict",
+      "config": "workflow.plugins.aws.v1.S3UploadStepConfig",
+      "output": "workflow.plugins.aws.v1.S3UploadStepOutput"
     }
   ]
 }
