@@ -3,7 +3,7 @@ module github.com/GoCodeAlone/workflow-plugin-aws
 go 1.26.0
 
 require (
-	github.com/GoCodeAlone/workflow v0.51.7
+	github.com/GoCodeAlone/workflow v0.51.11-0.20260514225636-522748f35474
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15
@@ -21,6 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/rds v1.115.0
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.62.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.2
+	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -33,9 +34,6 @@ require (
 	cloud.google.com/go/iam v1.5.3 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
 	cloud.google.com/go/storage v1.61.3 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/DataDog/datadog-go/v5 v5.8.3 // indirect
 	github.com/GoCodeAlone/go-plugin v1.7.0 // indirect
@@ -60,7 +58,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.23 // indirect
-	github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22 // indirect
@@ -224,7 +221,6 @@ require (
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260420184626-e10c466a9529 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260420184626-e10c466a9529 // indirect
-	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.70.0 // indirect

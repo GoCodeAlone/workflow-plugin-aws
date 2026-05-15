@@ -42,8 +42,15 @@ type awsIaCServer struct {
 	pb.UnimplementedIaCProviderValidatorServer
 	pb.UnimplementedIaCProviderDriftConfigDetectorServer
 	pb.UnimplementedResourceDriverServer
+	pb.UnimplementedIaCStateBackendServer
 
 	provider *provider.AWSProvider
+
+	// stateBackend serves the typed pb.IaCStateBackendServer surface
+	// (s3 backend). Per decisions/0035, this one type carries both the
+	// IaC-provider and the IaC-state-backend concerns. The backing store is
+	// constructed lazily via the Configure RPC — see internal/statebackend_server.go.
+	stateBackend stateBackend
 }
 
 // newAWSIaCServer constructs a typed-IaC server backed by the given
@@ -72,6 +79,10 @@ var (
 	// delegates to DetectDrift (existence-only behavior; ignores the specs map).
 	_ pb.IaCProviderDriftDetectorServer = (*awsIaCServer)(nil)
 	_ pb.ResourceDriverServer           = (*awsIaCServer)(nil)
+	// awsIaCServer also SERVES the typed IaC state-backend contract (s3
+	// backend). The SDK serve hook auto-registers this via type-assertion at
+	// plugin startup — see cmd/workflow-plugin-aws/main.go.
+	_ pb.IaCStateBackendServer = (*awsIaCServer)(nil)
 )
 
 // ── Required service methods ────────────────────────────────────────────────
