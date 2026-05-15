@@ -174,3 +174,80 @@ func TestCapabilityParity_IaCStateBackends(t *testing.T) {
 		}
 	}
 }
+
+// TestPluginJSONCapabilities_ModuleStep_Parity asserts that the type-name
+// keys in the providers wired into IaCServeOptions (ModuleProviders /
+// StepProviders) exactly match plugin.json's capabilities.moduleTypes /
+// capabilities.stepTypes (modulo the always-implicit "iac.provider" module
+// type, which is served via the IaC contract surface and is NOT a
+// standalone-module provider).
+//
+// This is the in-process equivalent of the gRPC bridge's GetModuleTypes /
+// GetStepTypes RPCs (the bridge surfaces ModuleProviders' keys verbatim via
+// plan-2 PR 1's mapBackedProvider adapter), and catches drift between
+// "what main.go wires" and "what plugin.json declares".
+func TestPluginJSONCapabilities_ModuleStep_Parity(t *testing.T) {
+	repoRoot := hostConformanceRepoRoot(t)
+	data, err := os.ReadFile(filepath.Join(repoRoot, "plugin.json"))
+	if err != nil {
+		t.Fatalf("read plugin.json: %v", err)
+	}
+	var manifest struct {
+		Capabilities struct {
+			ModuleTypes []string `json:"moduleTypes"`
+			StepTypes   []string `json:"stepTypes"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse plugin.json: %v", err)
+	}
+
+	// Module-type parity. plugin.json includes the implicit "iac.provider"
+	// (served via the IaC contract, NOT via ModuleProviders); filter it out
+	// before comparing.
+	declaredModules := map[string]bool{}
+	for _, m := range manifest.Capabilities.ModuleTypes {
+		if m == "iac.provider" {
+			continue
+		}
+		declaredModules[m] = true
+	}
+	servedModules := map[string]bool{}
+	for name := range ModuleProviders() {
+		servedModules[name] = true
+	}
+	for m := range declaredModules {
+		if !servedModules[m] {
+			t.Errorf("plugin.json declares moduleTypes entry %q but ModuleProviders does not serve it (served: %v)",
+				m, servedModules)
+		}
+	}
+	for m := range servedModules {
+		if !declaredModules[m] {
+			t.Errorf("ModuleProviders serves %q but plugin.json capabilities.moduleTypes does not declare it (declared: %v)",
+				m, declaredModules)
+		}
+	}
+
+	// Step-type parity.
+	declaredSteps := map[string]bool{}
+	for _, s := range manifest.Capabilities.StepTypes {
+		declaredSteps[s] = true
+	}
+	servedSteps := map[string]bool{}
+	for name := range StepProviders() {
+		servedSteps[name] = true
+	}
+	for s := range declaredSteps {
+		if !servedSteps[s] {
+			t.Errorf("plugin.json declares stepTypes entry %q but StepProviders does not serve it (served: %v)",
+				s, servedSteps)
+		}
+	}
+	for s := range servedSteps {
+		if !declaredSteps[s] {
+			t.Errorf("StepProviders serves %q but plugin.json capabilities.stepTypes does not declare it (declared: %v)",
+				s, declaredSteps)
+		}
+	}
+}

@@ -16,5 +16,8 @@ import (
 )
 
 func main() {
-	sdk.ServeIaCPlugin(internal.NewIaCServer(), sdk.IaCServeOptions{})
+	sdk.ServeIaCPlugin(internal.NewIaCServer(), sdk.IaCServeOptions{
+		Modules: internal.ModuleProviders(),
+		Steps:   internal.StepProviders(),
+	})
 }
