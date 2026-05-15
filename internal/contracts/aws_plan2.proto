@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package workflow.plugins.aws.v1;
+
+option go_package = "github.com/GoCodeAlone/workflow-plugin-aws/internal/contracts;contracts";
+
+// aws_plan2.proto declares the typed config / output messages for the
+// plugin-native modules + step introduced in plan-2 PR 2:
+//   - aws.credentials (module)
+//   - storage.s3 (module)
+//   - step.s3_upload (step)
+//
+// The Provider implementations in this repo stay on the legacy
+// sdk.ModuleProvider / sdk.StepProvider config-Struct path per plan-2's
+// "TypedModuleProvider out for v1" Non-Goal. The messages below back the
+// `mode:"strict"` descriptors in plugin.contracts.json so the
+// strict-contracts CI gate is satisfied honestly (consistent with the
+// existing `iac.provider` precedent in aws.proto) and act as a
+// drop-in target for a future TypedModuleProvider migration. See
+// decisions/0039.
+
+// AWSCredentialsBlock mirrors the YAML `credentials:` sub-block the
+// plan-2 modules accept. The `type` field — when non-empty — selects one
+// of "static" | "env" | "profile" | "role_arn"; consumed by
+// awscreds.BuildAWSConfig (see internal/awscreds/awscreds.go).
+message AWSCredentialsBlock {
+  // type selects the credential source path. One of:
+  //   "static"   — inline access_key / secret_key (default when keys present)
+  //   "env"      — aws-sdk-go-v2 default credential chain
+  //   "profile"  — shared-config profile via WithSharedConfigProfile
+  //   "role_arn" — STS AssumeRole on top of base credentials
+  // Empty string = same as "env" (default chain).
+  string type = 1;
+  string access_key = 2;
+  string secret_key = 3;
+  string session_token = 4;
+  // role_arn / external_id / session_name — honored only when type=="role_arn".
+  string role_arn = 5;
+  string external_id = 6;
+  // profile — honored only when type=="profile".
+  string profile = 7;
+  string session_name = 8;
+}
+
+// AWSCredentialsConfig is the typed configuration for the aws.credentials
+// standalone module. The module registers the parsed credentials block in
+// the process-local credref registry under the module's own name so
+// sibling storage.s3 / step.s3_upload modules can reference it via
+// `credentials_ref:`.
+message AWSCredentialsConfig {
+  // region is the AWS region the credentials are scoped to (used as the
+  // default region when sibling modules don't override).
+  string region = 1;
+  AWSCredentialsBlock credentials = 2;
+}
+
+// S3StorageConfig is the typed configuration for the storage.s3 module.
+// The module exposes Put/Get/Delete object operations against the named
+// bucket. Credentials come from EITHER the inline `credentials:` block OR
+// `credentials_ref:` (a sibling aws.credentials module name) — inline
+// wins when both are supplied.
+message S3StorageConfig {
+  // bucket is the S3 bucket name (REQUIRED).
+  string bucket = 1;
+  // region is the AWS region; if set, overrides the referenced
+  // credentials' region.
+  string region = 2;
+  // endpoint is an optional custom S3 endpoint URL (MinIO / LocalStack).
+  // When set, the client uses path-style addressing.
+  string endpoint = 3;
+  // credentials_ref names an aws.credentials module to look up in the
+  // process-local credref registry. Mutually exclusive with `credentials`;
+  // inline credentials win when both are supplied.
+  string credentials_ref = 4;
+  AWSCredentialsBlock credentials = 5;
+}
+
+// S3UploadStepConfig is the typed configuration for the step.s3_upload
+// pipeline step. The step uploads a base64-encoded body from the pipeline
+// context to S3 and returns S3UploadStepOutput.
+message S3UploadStepConfig {
+  // bucket is the S3 bucket name (REQUIRED).
+  string bucket = 1;
+  // region is the AWS region (REQUIRED).
+  string region = 2;
+  // endpoint is an optional custom S3 endpoint URL (MinIO / LocalStack).
+  string endpoint = 3;
+  // key is a Go text/template-rendered object key. Supports
+  // `{{ .field }}` substitution from the pipeline-context data and a
+  // `{{ uuid }}` helper.
+  string key = 4;
+  // body_from is the dot-path into the pipeline context (current +
+  // step outputs under the "steps" key) that resolves to a
+  // base64-encoded body string.
+  string body_from = 5;
+  // content_type is the static Content-Type for the uploaded object.
+  // Used when content_type_from is empty or unresolvable.
+  string content_type = 6;
+  // content_type_from is a dot-path into the pipeline context that
+  // resolves to a Content-Type string. Beats content_type when present.
+  string content_type_from = 7;
+  // credentials_ref / credentials — same semantics as S3StorageConfig.
+  string credentials_ref = 8;
+  AWSCredentialsBlock credentials = 9;
+}
+
+// S3UploadStepOutput is the typed output map step.s3_upload returns.
+message S3UploadStepOutput {
+  // url is the virtual-hosted-style URL of the uploaded object
+  // (`https://<bucket>.s3.<region>.amazonaws.com/<key>`), or, when a
+  // custom endpoint is configured, `<endpoint>/<bucket>/<key>`.
+  string url = 1;
+  // key is the rendered S3 object key after template substitution.
+  string key = 2;
+  // bucket is the S3 bucket name the object was uploaded to.
+  string bucket = 3;
+}

@@ -7,12 +7,10 @@ import (
 	"sync"
 	"time"
 
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/GoCodeAlone/workflow-plugin-aws/drivers"
+	"github.com/GoCodeAlone/workflow-plugin-aws/internal/awscreds"
 	"github.com/GoCodeAlone/workflow/interfaces"
 )
 
@@ -48,7 +46,24 @@ func (p *AWSProvider) Name() string    { return ProviderName }
 func (p *AWSProvider) Version() string { return ProviderVersion }
 
 // Initialize configures the AWS SDK and registers all resource drivers.
-// Supported config keys: region, access_key_id, secret_access_key, ecs_cluster.
+//
+// Supported config keys (back-compat top-level):
+//   - region
+//   - access_key_id, secret_access_key
+//   - ecs_cluster
+//
+// Supported config keys under the nested `credentials:` block (preferred
+// shape — mirrors the standalone-module path from plan-2 Tasks 4-6):
+//   - type        — "static" | "env" | "profile" | "role_arn"
+//   - accessKey, secretKey, sessionToken
+//   - profile     — shared-config profile name (honoured when type=="profile")
+//   - roleArn, externalId, sessionName (honoured when type=="role_arn")
+//
+// Credential resolution flows through awscreds.BuildAWSConfig so the
+// `credential_source` markers Phase B records on CloudAccount stay honoured
+// in-plugin. CredInput.Source is populated from `credentials.type` (the YAML
+// field), never from CloudAccount.Extra — which never crosses the gRPC
+// boundary.
 func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -59,18 +74,41 @@ func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) err
 	}
 	p.region = region
 
-	opts := []func(*awscfg.LoadOptions) error{
-		awscfg.WithRegion(region),
-	}
-	accessKey, _ := config["access_key_id"].(string)
-	secretKey, _ := config["secret_access_key"].(string)
-	if accessKey != "" && secretKey != "" {
-		opts = append(opts, awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-		))
+	cred := awscreds.CredInput{Region: region}
+	// Back-compat: top-level access_key_id / secret_access_key still honoured.
+	cred.AccessKey, _ = config["access_key_id"].(string)
+	cred.SecretKey, _ = config["secret_access_key"].(string)
+
+	// Preferred: nested `credentials:` block. Values here override the
+	// back-compat top-level keys when both are supplied.
+	if credsMap, ok := config["credentials"].(map[string]any); ok {
+		if v, _ := credsMap["type"].(string); v != "" {
+			cred.Source = v
+		}
+		if v, _ := credsMap["accessKey"].(string); v != "" {
+			cred.AccessKey = v
+		}
+		if v, _ := credsMap["secretKey"].(string); v != "" {
+			cred.SecretKey = v
+		}
+		if v, _ := credsMap["sessionToken"].(string); v != "" {
+			cred.SessionToken = v
+		}
+		if v, _ := credsMap["profile"].(string); v != "" {
+			cred.Profile = v
+		}
+		if v, _ := credsMap["roleArn"].(string); v != "" {
+			cred.RoleARN = v
+		}
+		if v, _ := credsMap["externalId"].(string); v != "" {
+			cred.ExternalID = v
+		}
+		if v, _ := credsMap["sessionName"].(string); v != "" {
+			cred.SessionName = v
+		}
 	}
 
-	cfg, err := awscfg.LoadDefaultConfig(ctx, opts...)
+	cfg, err := awscreds.BuildAWSConfig(ctx, cred)
 	if err != nil {
 		return fmt.Errorf("aws: load config: %w", err)
 	}
