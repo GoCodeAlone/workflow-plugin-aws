@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "external",
   "tier": "community",
-  "minEngineVersion": "0.51.11-0.20260514225636-522748f35474",
+  "minEngineVersion": "0.52.0",
   "keywords": ["aws", "iac", "infrastructure", "ecs", "eks", "rds", "vpc", "s3", "autoscaling"],
   "homepage": "https://github.com/GoCodeAlone/workflow-plugin-aws",
   "repository": "https://github.com/GoCodeAlone/workflow-plugin-aws",
