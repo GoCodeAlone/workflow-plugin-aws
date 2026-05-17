@@ -1,12 +1,12 @@
 {
   "name": "workflow-plugin-aws",
-  "version": "1.2.1",
+  "version": "2.0.0-rc1",
   "author": "GoCodeAlone",
   "description": "AWS provider plugin for workflow IaC \u2014 manages ECS, EKS, RDS, ElastiCache, VPC, ALB, Route53, ECR, API Gateway, Security Groups, IAM, S3, ACM, and AutoScaling Group resources",
   "license": "MIT",
   "type": "external",
   "tier": "community",
-  "minEngineVersion": "0.54.0",
+  "minEngineVersion": "0.56.0",
   "keywords": [
     "aws",
     "iac",

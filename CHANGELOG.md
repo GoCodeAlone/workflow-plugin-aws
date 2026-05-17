@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc1] — 2026-05-17
+
+### Breaking changes (workflow#699)
+
+- Removed `AWSProvider.Apply` Go method (dead since v1.2.0 v2 dispatch declaration; never reached by wfctl after v2 routes through `wfctlhelpers.ApplyPlanWithHooks`).
+- Removed `awsIaCServer.Apply` gRPC handler + `applyResultToPB` encoder helper. The proto-side `rpc Apply` was deleted in workflow v0.56.0-rc1.
+- Requires workflow v0.56.0+ (was v0.54.0).
+
+### Reason
+
+Per ADR 0024 compile-time-safety mandate: hard-delete the dead v1 Apply surface across the IaC plugin ecosystem. Plugin's typed `CapabilitiesResponse.compute_plan_version = "v2"` declaration unchanged.
+
 ## [1.1.0] — 2026-05-15
 
 ### Added
