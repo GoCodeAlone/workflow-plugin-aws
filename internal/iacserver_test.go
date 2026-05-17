@@ -97,3 +97,21 @@ func TestIaCServer_DetectDriftWithSpecs_DelegatesToDetectDrift(t *testing.T) {
 		t.Error("expected error from uninitialized provider")
 	}
 }
+
+// TestAWSIaCServer_Capabilities_ComputePlanVersionV2 pins the Phase 2
+// contract signal: the plugin MUST declare ComputePlanVersion="v2" so
+// wfctl routes via wfctlhelpers.ApplyPlanWithHooks (v2 dispatch).
+// A silent regression that drops the literal would degrade to v1
+// dispatch via wfctlhelpers.DispatchVersionFor's empty-default,
+// breaking the Phase 2 hard-cutover contract per ADR 0024 + ADR 0040.
+// Per workflow#640 + #695 Phase 2 + 2.5 cascade closeout.
+func TestAWSIaCServer_Capabilities_ComputePlanVersionV2(t *testing.T) {
+	s := NewIaCServer()
+	resp, err := s.Capabilities(context.Background(), &pb.CapabilitiesRequest{})
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	if got := resp.GetComputePlanVersion(); got != "v2" {
+		t.Errorf("CapabilitiesResponse.ComputePlanVersion = %q; want %q (v2 dispatch opt-in lost)", got, "v2")
+	}
+}
