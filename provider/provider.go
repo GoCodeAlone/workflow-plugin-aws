@@ -233,61 +233,6 @@ func (p *AWSProvider) Plan(ctx context.Context, desired []interfaces.ResourceSpe
 	return plan, nil
 }
 
-// Apply executes the plan actions.
-func (p *AWSProvider) Apply(ctx context.Context, plan *interfaces.IaCPlan) (*interfaces.ApplyResult, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
-	}
-
-	result := &interfaces.ApplyResult{PlanID: plan.ID}
-
-	for _, action := range plan.Actions {
-		drv, err := p.resourceDriver(action.Resource.Type)
-		if err != nil {
-			result.Errors = append(result.Errors, interfaces.ActionError{
-				Resource: action.Resource.Name,
-				Action:   action.Action,
-				Error:    err.Error(),
-			})
-			continue
-		}
-
-		var out *interfaces.ResourceOutput
-		switch action.Action {
-		case "create":
-			out, err = drv.Create(ctx, action.Resource)
-		case "update", "replace":
-			ref := interfaces.ResourceRef{Name: action.Resource.Name, Type: action.Resource.Type}
-			if action.Current != nil {
-				ref.ProviderID = action.Current.ProviderID
-			}
-			out, err = drv.Update(ctx, ref, action.Resource)
-		case "delete":
-			ref := interfaces.ResourceRef{Name: action.Resource.Name, Type: action.Resource.Type}
-			if action.Current != nil {
-				ref.ProviderID = action.Current.ProviderID
-			}
-			err = drv.Delete(ctx, ref)
-		}
-
-		if err != nil {
-			result.Errors = append(result.Errors, interfaces.ActionError{
-				Resource: action.Resource.Name,
-				Action:   action.Action,
-				Error:    err.Error(),
-			})
-			continue
-		}
-		if out != nil {
-			result.Resources = append(result.Resources, *out)
-		}
-	}
-
-	return result, nil
-}
-
 // Destroy deletes a set of resources.
 func (p *AWSProvider) Destroy(ctx context.Context, resources []interfaces.ResourceRef) (*interfaces.DestroyResult, error) {
 	p.mu.RLock()

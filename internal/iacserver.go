@@ -145,22 +145,6 @@ func (s *awsIaCServer) Plan(ctx context.Context, req *pb.PlanRequest) (*pb.PlanR
 	return &pb.PlanResponse{Plan: pbPlan}, nil
 }
 
-func (s *awsIaCServer) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	plan, err := planFromPB(req.GetPlan())
-	if err != nil {
-		return nil, fmt.Errorf("aws iacserver: decode Apply plan: %w", err)
-	}
-	result, err := s.provider.Apply(ctx, plan)
-	if err != nil {
-		return nil, err
-	}
-	pbResult, err := applyResultToPB(result)
-	if err != nil {
-		return nil, fmt.Errorf("aws iacserver: encode Apply response: %w", err)
-	}
-	return &pb.ApplyResponse{Result: pbResult}, nil
-}
-
 func (s *awsIaCServer) Destroy(ctx context.Context, req *pb.DestroyRequest) (*pb.DestroyResponse, error) {
 	refs := refsFromPB(req.GetRefs())
 	result, err := s.provider.Destroy(ctx, refs)
@@ -673,42 +657,6 @@ func planFromPB(p *pb.IaCPlan) (*interfaces.IaCPlan, error) {
 		DesiredHash:   p.GetDesiredHash(),
 		SchemaVersion: int(p.GetSchemaVersion()),
 		InputSnapshot: copyStringMap(p.GetInputSnapshot()),
-	}, nil
-}
-
-func applyResultToPB(r *interfaces.ApplyResult) (*pb.ApplyResult, error) {
-	if r == nil {
-		return nil, nil
-	}
-	resources := make([]*pb.ResourceOutput, 0, len(r.Resources))
-	for i := range r.Resources {
-		ro, err := outputToPB(&r.Resources[i])
-		if err != nil {
-			return nil, err
-		}
-		if ro != nil {
-			resources = append(resources, ro)
-		}
-	}
-	errs := make([]*pb.ActionError, 0, len(r.Errors))
-	for _, e := range r.Errors {
-		errs = append(errs, &pb.ActionError{Resource: e.Resource, Action: e.Action, Error: e.Error})
-	}
-	driftReport := make([]*pb.DriftEntry, 0, len(r.InputDriftReport))
-	for _, d := range r.InputDriftReport {
-		driftReport = append(driftReport, &pb.DriftEntry{
-			Name:             d.Name,
-			PlanFingerprint:  d.PlanFingerprint,
-			ApplyFingerprint: d.ApplyFingerprint,
-		})
-	}
-	return &pb.ApplyResult{
-		PlanId:               r.PlanID,
-		Resources:            resources,
-		Errors:               errs,
-		InitialInputSnapshot: copyStringMap(r.InitialInputSnapshot),
-		InputDriftReport:     driftReport,
-		ReplaceIdMap:         copyStringMap(r.ReplaceIDMap),
 	}, nil
 }
 
