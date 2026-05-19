@@ -27,7 +27,7 @@ AWS provider plugin for workflow IaC — manages ECS, EKS, RDS, ElastiCache, VPC
 version: 1
 plugins:
   - name: workflow-plugin-aws
-    version: 2.0.0
+    version: v2.0.0
     source: github.com/GoCodeAlone/workflow-plugin-aws
 ```
 
