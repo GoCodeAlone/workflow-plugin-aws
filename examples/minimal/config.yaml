@@ -1,0 +1,32 @@
+# workflow-plugin-aws minimal example
+# Demonstrates AWS IaC provider configuration.
+# Validate with: wfctl validate --skip-unknown-types examples/minimal/config.yaml
+#
+# Required env vars: AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+modules:
+  - name: aws-credentials
+    type: aws.credentials
+    config:
+      region: "${AWS_REGION}"
+      access_key_id: "${AWS_ACCESS_KEY_ID}"
+      secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+
+  - name: aws-provider
+    type: iac.provider
+    config:
+      provider: aws
+      credentials_module: aws-credentials
+
+workflows:
+  pipeline:
+    trigger:
+      type: http
+      config:
+        path: /deploy
+        method: POST
+    steps:
+      - name: deploy
+        type: step.log
+        config:
+          message: "AWS IaC provider ready. Use wfctl iac apply to provision resources."
