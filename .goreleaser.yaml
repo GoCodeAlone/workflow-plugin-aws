@@ -4,9 +4,9 @@ project_name: workflow-plugin-aws
 
 before:
   hooks:
-    - go mod tidy
-    - "sed -i.bak 's/\"version\": \".*\"/\"version\": \"{{ .Version }}\"/' plugin.json && rm -f plugin.json.bak"
-    - "sed -E -i.bak 's|releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/workflow-plugin-aws_[0-9]+\\.[0-9]+\\.[0-9]+_|releases/download/v{{ .Version }}/workflow-plugin-aws_{{ .Version }}_|g' plugin.json && rm -f plugin.json.bak"
+    - "sh -c \"rm -rf .release && mkdir -p .release && cp plugin.json .release/plugin.json && cp plugin.contracts.json .release/plugin.contracts.json && sed -i.bak 's/\\\"version\\\": \\\".*\\\"/\\\"version\\\": \\\"{{ .Version }}\\\"/' .release/plugin.json && rm -f .release/plugin.json.bak\""
+    - "sh -c \"sed -i.bak 's|/releases/download/v[^/]*/|/releases/download/{{ .Tag }}/|g' .release/plugin.json && rm -f .release/plugin.json.bak\""
+    - "sh -c \"export GOPRIVATE=github.com/GoCodeAlone/*; WFCTL_VERSION=$(GOWORK=off go list -m github.com/GoCodeAlone/workflow | awk '{print $2}') && GOWORK=off go run github.com/GoCodeAlone/workflow/cmd/wfctl@${WFCTL_VERSION} plugin validate --file .release/plugin.json --strict-contracts\""
 
 builds:
   - id: workflow-plugin-aws
@@ -14,6 +14,7 @@ builds:
     binary: workflow-plugin-aws
     env:
       - CGO_ENABLED=0
+      - GOPRIVATE=github.com/GoCodeAlone/*
     goos:
       - linux
       - darwin
@@ -25,10 +26,14 @@ builds:
       - -s -w -X github.com/GoCodeAlone/workflow-plugin-aws/provider.ProviderVersion={{.Version}} -X github.com/GoCodeAlone/workflow-plugin-aws/internal.Version={{.Version}}
 
 archives:
-  - id: default
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: workflow-plugin-aws
+    ids:
+      - workflow-plugin-aws
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
     files:
-      - plugin.json
+      - src: .release/plugin.json
+        dst: plugin.json
       - plugin.contracts.json
       - LICENSE
 

@@ -17,8 +17,14 @@ func TestNewAWSProvider(t *testing.T) {
 	if p.Name() != "aws" {
 		t.Errorf("expected name aws, got %s", p.Name())
 	}
-	if p.Version() != "1.0.0" {
-		t.Errorf("expected version 1.0.0, got %s", p.Version())
+	// Version is set at link time via -ldflags; in unit tests the default
+	// "dev" sentinel applies. The release pipeline overrides it to the tag
+	// (workflow#758 Layer 3 — see provider.ProviderVersion).
+	if p.Version() != provider.ProviderVersion {
+		t.Errorf("expected version %s, got %s", provider.ProviderVersion, p.Version())
+	}
+	if p.Version() == "" {
+		t.Error("expected non-empty version")
 	}
 }
 

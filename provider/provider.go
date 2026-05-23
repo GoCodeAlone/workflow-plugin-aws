@@ -15,9 +15,13 @@ import (
 )
 
 const (
-	ProviderName    = "aws"
-	ProviderVersion = "1.0.0"
+	ProviderName = "aws"
 )
+
+// ProviderVersion is set at build time via -ldflags
+// "-X github.com/GoCodeAlone/workflow-plugin-aws/provider.ProviderVersion=X.Y.Z".
+// Declared as var (not const) so the linker can override it.
+var ProviderVersion = "dev"
 
 // AWSProvider implements interfaces.IaCProvider for Amazon Web Services.
 type AWSProvider struct {
