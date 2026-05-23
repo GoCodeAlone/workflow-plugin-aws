@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -20,7 +21,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
+
+      - uses: GoCodeAlone/setup-wfctl@v1
+        with:
+          version: v0.61.0
+
+      - name: Validate plugin contract for publish (pre-build)
+        run: wfctl plugin validate-contract --for-publish --tag "${{ github.ref_name }}" .
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
@@ -30,6 +38,15 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify shipped plugin.json carries tag (post-build)
+        run: |
+          if [ -f .release/plugin.json ]; then
+            wfctl plugin validate-contract --for-publish --tag "${{ github.ref_name }}" --release-dir .release .
+          else
+            wfctl plugin validate-contract --for-publish --tag "${{ github.ref_name }}" --release-dir . .
+          fi
+
       - name: Publish GitHub release
         if: ${{ success() }}
         env:

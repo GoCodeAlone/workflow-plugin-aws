@@ -29,6 +29,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Version is set at build time via -ldflags
+// "-X github.com/GoCodeAlone/workflow-plugin-aws/internal.Version=X.Y.Z".
+// Consumed by main.go via sdk.ResolveBuildVersion to drive the BuildVersion
+// field of sdk.IaCServeOptions (workflow#758 Layer 3: tag-only plugin version).
+var Version = "dev"
+
 // awsIaCServer wraps *provider.AWSProvider and exposes the typed
 // pb.IaCProvider*Server + ResourceDriverServer surface. The Unimplemented*Server
 // embeds satisfy the gRPC forward-compat contract and let the SDK type-assert
