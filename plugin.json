@@ -1,80 +1,80 @@
 {
-  "name": "workflow-plugin-aws",
-  "version": "0.0.0",
-  "author": "GoCodeAlone",
-  "description": "AWS provider plugin for workflow IaC \u2014 manages ECS, EKS, RDS, ElastiCache, VPC, ALB, Route53, ECR, API Gateway, Security Groups, IAM, S3, ACM, and AutoScaling Group resources",
-  "license": "MIT",
-  "type": "external",
-  "tier": "community",
-  "minEngineVersion": "0.64.0",
-  "iacServices": [
-    "workflow.plugin.external.iac.IaCProviderRequired",
-    "workflow.plugin.external.iac.IaCProviderEnumerator",
-    "workflow.plugin.external.iac.IaCProviderDriftDetector",
-    "workflow.plugin.external.iac.IaCProviderCredentialRevoker",
-    "workflow.plugin.external.iac.IaCProviderMigrationRepairer",
-    "workflow.plugin.external.iac.IaCProviderValidator",
-    "workflow.plugin.external.iac.IaCProviderDriftConfigDetector",
-    "workflow.plugin.external.iac.IaCStateBackend"
-  ],
-  "keywords": [
-    "aws",
-    "iac",
-    "infrastructure",
-    "ecs",
-    "eks",
-    "rds",
-    "vpc",
-    "s3",
-    "autoscaling"
-  ],
-  "homepage": "https://github.com/GoCodeAlone/workflow-plugin-aws",
-  "repository": "https://github.com/GoCodeAlone/workflow-plugin-aws",
-  "capabilities": {
-    "configProvider": false,
-    "moduleTypes": [
-      "iac.provider",
-      "aws.credentials",
-      "storage.s3"
+    "name": "workflow-plugin-aws",
+    "version": "2.1.1",
+    "author": "GoCodeAlone",
+    "description": "AWS provider plugin for workflow IaC \u2014 manages ECS, EKS, RDS, ElastiCache, VPC, ALB, Route53, ECR, API Gateway, Security Groups, IAM, S3, ACM, and AutoScaling Group resources",
+    "license": "MIT",
+    "type": "external",
+    "tier": "community",
+    "minEngineVersion": "0.64.0",
+    "iacServices": [
+        "workflow.plugin.external.iac.IaCProviderRequired",
+        "workflow.plugin.external.iac.IaCProviderEnumerator",
+        "workflow.plugin.external.iac.IaCProviderDriftDetector",
+        "workflow.plugin.external.iac.IaCProviderCredentialRevoker",
+        "workflow.plugin.external.iac.IaCProviderMigrationRepairer",
+        "workflow.plugin.external.iac.IaCProviderValidator",
+        "workflow.plugin.external.iac.IaCProviderDriftConfigDetector",
+        "workflow.plugin.external.iac.IaCStateBackend"
     ],
-    "stepTypes": [
-      "step.s3_upload"
+    "keywords": [
+        "aws",
+        "iac",
+        "infrastructure",
+        "ecs",
+        "eks",
+        "rds",
+        "vpc",
+        "s3",
+        "autoscaling"
     ],
-    "triggerTypes": [],
-    "iacStateBackends": [
-      "s3"
+    "homepage": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+    "repository": "https://github.com/GoCodeAlone/workflow-plugin-aws",
+    "capabilities": {
+        "configProvider": false,
+        "moduleTypes": [
+            "iac.provider",
+            "aws.credentials",
+            "storage.s3"
+        ],
+        "stepTypes": [
+            "step.s3_upload"
+        ],
+        "triggerTypes": [],
+        "iacStateBackends": [
+            "s3"
+        ]
+    },
+    "downloads": [
+        {
+            "os": "linux",
+            "arch": "amd64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-linux-amd64.tar.gz"
+        },
+        {
+            "os": "linux",
+            "arch": "arm64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-linux-arm64.tar.gz"
+        },
+        {
+            "os": "darwin",
+            "arch": "amd64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-darwin-amd64.tar.gz"
+        },
+        {
+            "os": "darwin",
+            "arch": "arm64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-darwin-arm64.tar.gz"
+        },
+        {
+            "os": "windows",
+            "arch": "amd64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-windows-amd64.tar.gz"
+        },
+        {
+            "os": "windows",
+            "arch": "arm64",
+            "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-windows-arm64.tar.gz"
+        }
     ]
-  },
-  "downloads": [
-    {
-      "os": "linux",
-      "arch": "amd64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-linux-amd64.tar.gz"
-    },
-    {
-      "os": "linux",
-      "arch": "arm64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-linux-arm64.tar.gz"
-    },
-    {
-      "os": "darwin",
-      "arch": "amd64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-darwin-amd64.tar.gz"
-    },
-    {
-      "os": "darwin",
-      "arch": "arm64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-darwin-arm64.tar.gz"
-    },
-    {
-      "os": "windows",
-      "arch": "amd64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-windows-amd64.tar.gz"
-    },
-    {
-      "os": "windows",
-      "arch": "arm64",
-      "url": "https://github.com/GoCodeAlone/workflow-plugin-aws/releases/download/v0.0.0/workflow-plugin-aws-windows-arm64.tar.gz"
-    }
-  ]
 }
