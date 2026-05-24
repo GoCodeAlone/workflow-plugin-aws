@@ -14,14 +14,16 @@ import (
 )
 
 type mockRoute53Client struct {
-	createOut   *route53.CreateHostedZoneOutput
-	createErr   error
-	listOut     *route53.ListHostedZonesByNameOutput
-	listErr     error
-	getOut      *route53.GetHostedZoneOutput
-	getErr      error
-	deleteErr   error
-	changeErr   error
+	createOut  *route53.CreateHostedZoneOutput
+	createErr  error
+	listOut    *route53.ListHostedZonesByNameOutput
+	listErr    error
+	getOut     *route53.GetHostedZoneOutput
+	getErr     error
+	recordsOut *route53.ListResourceRecordSetsOutput
+	recordsErr error
+	deleteErr  error
+	changeErr  error
 }
 
 func (m *mockRoute53Client) CreateHostedZone(_ context.Context, _ *route53.CreateHostedZoneInput, _ ...func(*route53.Options)) (*route53.CreateHostedZoneOutput, error) {
@@ -32,6 +34,9 @@ func (m *mockRoute53Client) ListHostedZonesByName(_ context.Context, _ *route53.
 }
 func (m *mockRoute53Client) GetHostedZone(_ context.Context, _ *route53.GetHostedZoneInput, _ ...func(*route53.Options)) (*route53.GetHostedZoneOutput, error) {
 	return m.getOut, m.getErr
+}
+func (m *mockRoute53Client) ListResourceRecordSets(_ context.Context, _ *route53.ListResourceRecordSetsInput, _ ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error) {
+	return m.recordsOut, m.recordsErr
 }
 func (m *mockRoute53Client) DeleteHostedZone(_ context.Context, _ *route53.DeleteHostedZoneInput, _ ...func(*route53.Options)) (*route53.DeleteHostedZoneOutput, error) {
 	return &route53.DeleteHostedZoneOutput{}, m.deleteErr
@@ -83,6 +88,58 @@ func TestRoute53Driver_Read_ByName(t *testing.T) {
 	}
 	if out.Outputs["zone_id"] != "/hostedzone/Z123456" {
 		t.Errorf("unexpected zone_id: %v", out.Outputs["zone_id"])
+	}
+}
+
+func TestRoute53Driver_ReadIncludesAuthorityAndRecords(t *testing.T) {
+	mock := &mockRoute53Client{
+		getOut: &route53.GetHostedZoneOutput{
+			HostedZone: &r53types.HostedZone{
+				Id:   awssdk.String("/hostedzone/Z123456"),
+				Name: awssdk.String("example.com."),
+			},
+			DelegationSet: &r53types.DelegationSet{
+				NameServers: []string{"ns-1.awsdns-01.com", "ns-2.awsdns-02.net"},
+			},
+		},
+		recordsOut: &route53.ListResourceRecordSetsOutput{
+			ResourceRecordSets: []r53types.ResourceRecordSet{
+				{
+					Name: awssdk.String("example.com."),
+					Type: r53types.RRTypeMx,
+					TTL:  awssdk.Int64(300),
+					ResourceRecords: []r53types.ResourceRecord{
+						{Value: awssdk.String("10 mail.example.com.")},
+					},
+				},
+			},
+		},
+	}
+	d := drivers.NewRoute53DriverWithClient(mock)
+	out, err := d.Read(context.Background(), interfaces.ResourceRef{Name: "example.com", ProviderID: "/hostedzone/Z123456"})
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	authority, ok := out.Outputs["authority"].(map[string]any)
+	if !ok {
+		t.Fatalf("authority = %T, want map[string]any", out.Outputs["authority"])
+	}
+	if got := authority["dns_host"]; got != "Route53" {
+		t.Fatalf("authority.dns_host = %v, want Route53", got)
+	}
+	nameServers, ok := authority["name_servers"].([]string)
+	if !ok || len(nameServers) != 2 || nameServers[0] != "ns-1.awsdns-01.com" {
+		t.Fatalf("authority.name_servers = %#v, want Route53 nameservers", authority["name_servers"])
+	}
+	if got := out.Outputs["record_count"]; got != 1 {
+		t.Fatalf("record_count = %v, want 1", got)
+	}
+	records, ok := out.Outputs["records"].([]map[string]any)
+	if !ok || len(records) != 1 {
+		t.Fatalf("records = %#v, want one normalized record", out.Outputs["records"])
+	}
+	if records[0]["type"] != "MX" || records[0]["name"] != "example.com." {
+		t.Fatalf("record = %#v, want MX example.com.", records[0])
 	}
 }
 
