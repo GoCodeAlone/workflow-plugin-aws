@@ -16,6 +16,7 @@ type Route53Client interface {
 	CreateHostedZone(ctx context.Context, params *route53.CreateHostedZoneInput, optFns ...func(*route53.Options)) (*route53.CreateHostedZoneOutput, error)
 	ListHostedZonesByName(ctx context.Context, params *route53.ListHostedZonesByNameInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesByNameOutput, error)
 	GetHostedZone(ctx context.Context, params *route53.GetHostedZoneInput, optFns ...func(*route53.Options)) (*route53.GetHostedZoneOutput, error)
+	ListResourceRecordSets(ctx context.Context, params *route53.ListResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
 	DeleteHostedZone(ctx context.Context, params *route53.DeleteHostedZoneInput, optFns ...func(*route53.Options)) (*route53.DeleteHostedZoneOutput, error)
 	ChangeResourceRecordSets(ctx context.Context, params *route53.ChangeResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ChangeResourceRecordSetsOutput, error)
 }
@@ -59,7 +60,7 @@ func (d *Route53Driver) Create(ctx context.Context, spec interfaces.ResourceSpec
 	if err != nil {
 		return nil, fmt.Errorf("route53: create zone %q: %w", spec.Name, err)
 	}
-	return r53ZoneToOutput(spec.Name, out.HostedZone), nil
+	return r53ZoneToOutput(spec.Name, out.HostedZone, out.DelegationSet, nil), nil
 }
 
 func (d *Route53Driver) Read(ctx context.Context, ref interfaces.ResourceRef) (*interfaces.ResourceOutput, error) {
@@ -68,7 +69,11 @@ func (d *Route53Driver) Read(ctx context.Context, ref interfaces.ResourceRef) (*
 		if err != nil {
 			return nil, fmt.Errorf("route53: get zone %q: %w", ref.ProviderID, err)
 		}
-		return r53ZoneToOutput(ref.Name, out.HostedZone), nil
+		records, err := d.listRecordSets(ctx, ref.ProviderID)
+		if err != nil {
+			return nil, err
+		}
+		return r53ZoneToOutput(ref.Name, out.HostedZone, out.DelegationSet, records), nil
 	}
 
 	domainName := ref.Name
@@ -81,7 +86,35 @@ func (d *Route53Driver) Read(ctx context.Context, ref interfaces.ResourceRef) (*
 	if len(out.HostedZones) == 0 {
 		return nil, fmt.Errorf("route53: zone %q not found", domainName)
 	}
-	return r53ZoneToOutput(ref.Name, &out.HostedZones[0]), nil
+	zoneID := awssdk.ToString(out.HostedZones[0].Id)
+	hostedZone := &out.HostedZones[0]
+	zone, err := d.client.GetHostedZone(ctx, &route53.GetHostedZoneInput{Id: awssdk.String(zoneID)})
+	if err != nil {
+		return nil, fmt.Errorf("route53: get zone %q: %w", zoneID, err)
+	}
+	var delegation *r53types.DelegationSet
+	if zone != nil {
+		if zone.HostedZone != nil {
+			hostedZone = zone.HostedZone
+		}
+		delegation = zone.DelegationSet
+	}
+	records, err := d.listRecordSets(ctx, zoneID)
+	if err != nil {
+		return nil, err
+	}
+	return r53ZoneToOutput(ref.Name, hostedZone, delegation, records), nil
+}
+
+func (d *Route53Driver) listRecordSets(ctx context.Context, zoneID string) ([]r53types.ResourceRecordSet, error) {
+	out, err := d.client.ListResourceRecordSets(ctx, &route53.ListResourceRecordSetsInput{HostedZoneId: awssdk.String(zoneID)})
+	if err != nil {
+		return nil, fmt.Errorf("route53: list records %q: %w", zoneID, err)
+	}
+	if out == nil {
+		return nil, nil
+	}
+	return out.ResourceRecordSets, nil
 }
 
 func (d *Route53Driver) Update(ctx context.Context, ref interfaces.ResourceRef, spec interfaces.ResourceSpec) (*interfaces.ResourceOutput, error) {
@@ -114,9 +147,9 @@ func (d *Route53Driver) Update(ctx context.Context, ref interfaces.ResourceRef, 
 			changes = append(changes, r53types.Change{
 				Action: r53types.ChangeActionUpsert,
 				ResourceRecordSet: &r53types.ResourceRecordSet{
-					Name: awssdk.String(name),
-					Type: r53types.RRType(rtype),
-					TTL:  awssdk.Int64(ttl),
+					Name:            awssdk.String(name),
+					Type:            r53types.RRType(rtype),
+					TTL:             awssdk.Int64(ttl),
 					ResourceRecords: rrs,
 				},
 			})
@@ -170,7 +203,7 @@ func (d *Route53Driver) Scale(_ context.Context, _ interfaces.ResourceRef, _ int
 	return nil, fmt.Errorf("route53: DNS zones are not scalable")
 }
 
-func r53ZoneToOutput(name string, zone *r53types.HostedZone) *interfaces.ResourceOutput {
+func r53ZoneToOutput(name string, zone *r53types.HostedZone, delegation *r53types.DelegationSet, records []r53types.ResourceRecordSet) *interfaces.ResourceOutput {
 	if zone == nil {
 		return nil
 	}
@@ -180,9 +213,24 @@ func r53ZoneToOutput(name string, zone *r53types.HostedZone) *interfaces.Resourc
 	}
 	if zone.Name != nil {
 		outputs["domain_name"] = *zone.Name
+		outputs["domain"] = *zone.Name
 	}
 	if zone.Config != nil {
 		outputs["private"] = zone.Config.PrivateZone
+	}
+	if delegation != nil {
+		outputs["name_servers"] = append([]string(nil), delegation.NameServers...)
+	}
+	if records != nil {
+		outputs["records"] = r53RecordOutputs(records)
+		outputs["record_count"] = len(records)
+	} else if zone.ResourceRecordSetCount != nil {
+		outputs["record_count"] = int(*zone.ResourceRecordSetCount)
+	}
+	outputs["authority"] = map[string]any{
+		"role":         "target_authoritative_dns",
+		"dns_host":     "Route53",
+		"name_servers": append([]string(nil), delegationNameServers(delegation)...),
 	}
 
 	return &interfaces.ResourceOutput{
@@ -192,6 +240,42 @@ func r53ZoneToOutput(name string, zone *r53types.HostedZone) *interfaces.Resourc
 		Outputs:    outputs,
 		Status:     "running",
 	}
+}
+
+func delegationNameServers(delegation *r53types.DelegationSet) []string {
+	if delegation == nil {
+		return nil
+	}
+	return delegation.NameServers
+}
+
+func r53RecordOutputs(records []r53types.ResourceRecordSet) []map[string]any {
+	outputs := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		out := map[string]any{
+			"name": awssdk.ToString(record.Name),
+			"type": string(record.Type),
+		}
+		if record.TTL != nil {
+			out["ttl"] = *record.TTL
+		}
+		if len(record.ResourceRecords) > 0 {
+			values := make([]string, 0, len(record.ResourceRecords))
+			for _, value := range record.ResourceRecords {
+				values = append(values, awssdk.ToString(value.Value))
+			}
+			out["values"] = values
+		}
+		if record.AliasTarget != nil {
+			out["alias_target"] = map[string]any{
+				"dns_name":               awssdk.ToString(record.AliasTarget.DNSName),
+				"hosted_zone_id":         awssdk.ToString(record.AliasTarget.HostedZoneId),
+				"evaluate_target_health": record.AliasTarget.EvaluateTargetHealth,
+			}
+		}
+		outputs = append(outputs, out)
+	}
+	return outputs
 }
 
 // SensitiveKeys returns output keys whose values should be masked in logs and plan output.
