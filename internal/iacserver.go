@@ -33,7 +33,7 @@ import (
 // "-X github.com/GoCodeAlone/workflow-plugin-aws/internal.Version=X.Y.Z".
 // Consumed by main.go via sdk.ResolveBuildVersion to drive the BuildVersion
 // field of sdk.IaCServeOptions (workflow#758 Layer 3: tag-only plugin version).
-var Version = "dev"
+var Version = "0.0.0"
 
 // awsIaCServer wraps *provider.AWSProvider and exposes the typed
 // pb.IaCProvider*Server + ResourceDriverServer surface. The Unimplemented*Server
