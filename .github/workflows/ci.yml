@@ -44,4 +44,4 @@ jobs:
           go-version-file: go.mod
 
       - name: Validate strict plugin contracts
-        run: go run github.com/GoCodeAlone/workflow/cmd/wfctl@v0.61.0 plugin validate --file plugin.json --strict-contracts
+        run: go run github.com/GoCodeAlone/workflow/cmd/wfctl@v0.64.3 plugin validate --file plugin.json --strict-contracts

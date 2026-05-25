@@ -15,6 +15,7 @@ import (
 
 type mockECSClient struct {
 	registerOut  *ecs.RegisterTaskDefinitionOutput
+	registerIn   *ecs.RegisterTaskDefinitionInput
 	registerErr  error
 	createSvcOut *ecs.CreateServiceOutput
 	createSvcErr error
@@ -27,7 +28,8 @@ type mockECSClient struct {
 	deregErr     error
 }
 
-func (m *mockECSClient) RegisterTaskDefinition(_ context.Context, _ *ecs.RegisterTaskDefinitionInput, _ ...func(*ecs.Options)) (*ecs.RegisterTaskDefinitionOutput, error) {
+func (m *mockECSClient) RegisterTaskDefinition(_ context.Context, in *ecs.RegisterTaskDefinitionInput, _ ...func(*ecs.Options)) (*ecs.RegisterTaskDefinitionOutput, error) {
+	m.registerIn = in
 	return m.registerOut, m.registerErr
 }
 func (m *mockECSClient) CreateService(_ context.Context, _ *ecs.CreateServiceInput, _ ...func(*ecs.Options)) (*ecs.CreateServiceOutput, error) {
@@ -56,12 +58,12 @@ func TestECSDriver_Create(t *testing.T) {
 		},
 		createSvcOut: &ecs.CreateServiceOutput{
 			Service: &ecstypes.Service{
-				ServiceArn:      awssdk.String(svcARN),
-				ServiceName:     awssdk.String("my-svc"),
-				Status:          awssdk.String("ACTIVE"),
-				DesiredCount:    1,
-				RunningCount:    0,
-				TaskDefinition:  awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/my-svc:1"),
+				ServiceArn:     awssdk.String(svcARN),
+				ServiceName:    awssdk.String("my-svc"),
+				Status:         awssdk.String("ACTIVE"),
+				DesiredCount:   1,
+				RunningCount:   0,
+				TaskDefinition: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/my-svc:1"),
 			},
 		},
 	}
@@ -85,6 +87,71 @@ func TestECSDriver_Create(t *testing.T) {
 	}
 	if out.ProviderID != svcARN {
 		t.Errorf("expected ProviderID %s, got %s", svcARN, out.ProviderID)
+	}
+}
+
+func TestECSDriver_Create_CollectorConfig(t *testing.T) {
+	mock := &mockECSClient{
+		registerOut: &ecs.RegisterTaskDefinitionOutput{
+			TaskDefinition: &ecstypes.TaskDefinition{
+				TaskDefinitionArn: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/observability-collector:1"),
+			},
+		},
+		createSvcOut: &ecs.CreateServiceOutput{
+			Service: &ecstypes.Service{
+				ServiceArn:     awssdk.String("arn:aws:ecs:us-east-1:123:service/default/observability-collector"),
+				ServiceName:    awssdk.String("observability-collector"),
+				Status:         awssdk.String("ACTIVE"),
+				DesiredCount:   1,
+				RunningCount:   0,
+				TaskDefinition: awssdk.String("arn:aws:ecs:us-east-1:123:task-definition/observability-collector:1"),
+			},
+		},
+	}
+	d := drivers.NewECSDriverWithClient(mock, "default")
+	_, err := d.Create(context.Background(), interfaces.ResourceSpec{
+		Name: "observability-collector",
+		Type: "infra.container_service",
+		Config: map[string]any{
+			"image":   "public.ecr.aws/aws-observability/aws-otel-collector:latest",
+			"command": []any{"--config=env:AOT_CONFIG_CONTENT"},
+			"env_vars": map[string]any{
+				"AOT_CONFIG_CONTENT": "receivers: {}",
+			},
+			"env_vars_secret": map[string]any{
+				"DD_API_KEY": "arn:aws:secretsmanager:us-east-1:123:secret:datadog",
+			},
+			"ports": []any{
+				map[string]any{"port": 4317, "protocol": "tcp"},
+				map[string]any{"port": 4318, "protocol": "tcp"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if mock.registerIn == nil {
+		t.Fatal("RegisterTaskDefinition input was not captured")
+	}
+	containers := mock.registerIn.ContainerDefinitions
+	if len(containers) != 1 {
+		t.Fatalf("container definitions len = %d, want 1", len(containers))
+	}
+	c := containers[0]
+	if len(c.Command) != 1 {
+		t.Fatalf("command = %v, want one entry", c.Command)
+	}
+	if got := c.Command[0]; got != "--config=env:AOT_CONFIG_CONTENT" {
+		t.Fatalf("command[0] = %q", got)
+	}
+	if len(c.Environment) != 1 || awssdk.ToString(c.Environment[0].Name) != "AOT_CONFIG_CONTENT" {
+		t.Fatalf("environment = %+v", c.Environment)
+	}
+	if len(c.Secrets) != 1 || awssdk.ToString(c.Secrets[0].Name) != "DD_API_KEY" {
+		t.Fatalf("secrets = %+v", c.Secrets)
+	}
+	if len(c.PortMappings) != 2 || awssdk.ToInt32(c.PortMappings[0].ContainerPort) != 4317 {
+		t.Fatalf("port mappings = %+v", c.PortMappings)
 	}
 }
 
