@@ -3,6 +3,7 @@ package drivers
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -61,6 +62,10 @@ func (d *ECSDriver) Create(ctx context.Context, spec interfaces.ResourceSpec) (*
 	}
 	replicas := int32(intProp(spec.Config, "replicas", 1))
 
+	containerDefinitions := []ecstypes.ContainerDefinition{
+		containerDefinitionFromConfig(spec.Name, spec.Config),
+	}
+
 	// Register task definition
 	tdIn := &ecs.RegisterTaskDefinitionInput{
 		Family:                  awssdk.String(spec.Name),
@@ -68,13 +73,7 @@ func (d *ECSDriver) Create(ctx context.Context, spec interfaces.ResourceSpec) (*
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		Cpu:                     awssdk.String(cpu),
 		Memory:                  awssdk.String(memory),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{
-			{
-				Name:  awssdk.String(spec.Name),
-				Image: awssdk.String(image),
-				Essential: awssdk.Bool(true),
-			},
-		},
+		ContainerDefinitions:    containerDefinitions,
 	}
 	tdOut, err := d.client.RegisterTaskDefinition(ctx, tdIn)
 	if err != nil {
@@ -148,9 +147,7 @@ func (d *ECSDriver) Update(ctx context.Context, ref interfaces.ResourceRef, spec
 			NetworkMode:             ecstypes.NetworkModeAwsvpc,
 			Cpu:                     awssdk.String(cpu),
 			Memory:                  awssdk.String(mem),
-			ContainerDefinitions: []ecstypes.ContainerDefinition{
-				{Name: awssdk.String(ref.Name), Image: awssdk.String(image), Essential: awssdk.Bool(true)},
-			},
+			ContainerDefinitions:    []ecstypes.ContainerDefinition{containerDefinitionFromConfig(ref.Name, spec.Config)},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("ecs: re-register task def %q: %w", ref.Name, err)
@@ -163,6 +160,97 @@ func (d *ECSDriver) Update(ctx context.Context, ref interfaces.ResourceRef, spec
 		return nil, fmt.Errorf("ecs: update service %q: %w", ref.Name, err)
 	}
 	return ecsServiceToOutput(ref.Name, out.Service), nil
+}
+
+func containerDefinitionFromConfig(name string, cfg map[string]any) ecstypes.ContainerDefinition {
+	image, _ := cfg["image"].(string)
+	def := ecstypes.ContainerDefinition{
+		Name:      awssdk.String(name),
+		Image:     awssdk.String(image),
+		Essential: awssdk.Bool(true),
+	}
+	if command := stringSliceProp(cfg, "command"); len(command) > 0 {
+		def.Command = command
+	}
+	def.Environment = ecsEnvironment(cfg["env_vars"])
+	def.Secrets = ecsSecrets(cfg["env_vars_secret"])
+	def.PortMappings = ecsPortMappings(cfg["ports"])
+	return def
+}
+
+func ecsEnvironment(raw any) []ecstypes.KeyValuePair {
+	values := stringMap(raw)
+	keys := sortedMapKeys(values)
+	out := make([]ecstypes.KeyValuePair, 0, len(keys))
+	for _, key := range keys {
+		value := values[key]
+		out = append(out, ecstypes.KeyValuePair{Name: awssdk.String(key), Value: awssdk.String(value)})
+	}
+	return out
+}
+
+func ecsSecrets(raw any) []ecstypes.Secret {
+	values := stringMap(raw)
+	keys := sortedMapKeys(values)
+	out := make([]ecstypes.Secret, 0, len(keys))
+	for _, key := range keys {
+		value := values[key]
+		out = append(out, ecstypes.Secret{Name: awssdk.String(key), ValueFrom: awssdk.String(value)})
+	}
+	return out
+}
+
+func ecsPortMappings(raw any) []ecstypes.PortMapping {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]ecstypes.PortMapping, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		port := intProp(m, "port", 0)
+		if port <= 0 {
+			continue
+		}
+		protocol := ecstypes.TransportProtocolTcp
+		if p, _ := m["protocol"].(string); p == "udp" {
+			protocol = ecstypes.TransportProtocolUdp
+		}
+		out = append(out, ecstypes.PortMapping{
+			ContainerPort: awssdk.Int32(int32(port)),
+			Protocol:      protocol,
+		})
+	}
+	return out
+}
+
+func stringMap(raw any) map[string]string {
+	switch values := raw.(type) {
+	case map[string]string:
+		return values
+	case map[string]any:
+		out := make(map[string]string, len(values))
+		for key, value := range values {
+			if str, ok := value.(string); ok {
+				out[key] = str
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func sortedMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (d *ECSDriver) Delete(ctx context.Context, ref interfaces.ResourceRef) error {

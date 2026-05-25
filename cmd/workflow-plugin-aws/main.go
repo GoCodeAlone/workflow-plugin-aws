@@ -11,14 +11,23 @@
 package main
 
 import (
+	_ "embed"
+
 	"github.com/GoCodeAlone/workflow-plugin-aws/internal"
 	sdk "github.com/GoCodeAlone/workflow/plugin/external/sdk"
 )
 
+// pluginJSON is copied from the repository root by GoReleaser before builds
+// and is committed for local builds/tests.
+//
+//go:embed plugin.json
+var pluginJSON []byte
+
 func main() {
 	sdk.ServeIaCPlugin(internal.NewIaCServer(), sdk.IaCServeOptions{
-		Modules:      internal.ModuleProviders(),
-		Steps:        internal.StepProviders(),
-		BuildVersion: sdk.ResolveBuildVersion(internal.Version),
+		ManifestProvider: sdk.MustEmbedManifest(pluginJSON),
+		Modules:          internal.ModuleProviders(),
+		Steps:            internal.StepProviders(),
+		BuildVersion:     sdk.ResolveBuildVersion(internal.Version),
 	})
 }
