@@ -7,6 +7,20 @@
   "type": "external",
   "tier": "community",
   "minEngineVersion": "0.64.3",
+  "required_secrets": [
+    {
+      "name": "AWS_ACCESS_KEY_ID",
+      "sensitive": true,
+      "description": "AWS access key ID. For credentials.type: env or static; profile/role_arn deployments may skip. Referenced as ${AWS_ACCESS_KEY_ID} in the iac.provider/aws config.",
+      "prompt": "AWS access key ID"
+    },
+    {
+      "name": "AWS_SECRET_ACCESS_KEY",
+      "sensitive": true,
+      "description": "AWS secret access key (pairs with AWS_ACCESS_KEY_ID). Referenced as ${AWS_SECRET_ACCESS_KEY}.",
+      "prompt": "AWS secret access key"
+    }
+  ],
   "iacServices": [
     "workflow.plugin.external.iac.IaCProviderRequired",
     "workflow.plugin.external.iac.IaCProviderEnumerator",
