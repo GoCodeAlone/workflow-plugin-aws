@@ -49,6 +49,14 @@ func NewAWSProviderConcrete() *AWSProvider {
 func (p *AWSProvider) Name() string    { return ProviderName }
 func (p *AWSProvider) Version() string { return ProviderVersion }
 
+// AWSConfigSnapshot returns the initialized AWS SDK config for typed services
+// that need to call provider APIs outside the resource-driver path.
+func (p *AWSProvider) AWSConfigSnapshot() (awssdk.Config, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cfg, p.initialized
+}
+
 // Initialize configures the AWS SDK and registers all resource drivers.
 //
 // Supported config keys (back-compat top-level):

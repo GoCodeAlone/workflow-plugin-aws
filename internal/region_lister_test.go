@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/GoCodeAlone/workflow-plugin-aws/provider"
@@ -19,7 +20,8 @@ func TestAWSIaCServer_ListRegions(t *testing.T) {
 		t.Fatalf("ListRegions: %v", err)
 	}
 	got := regionNames(resp.GetRegions())
-	want := []string{"ap-northeast-1", "ap-southeast-1", "ap-southeast-2", "eu-central-1", "eu-west-1", "us-east-1", "us-east-2", "us-west-1", "us-west-2"}
+	want := append([]string(nil), awsFallbackRegions...)
+	sort.Strings(want)
 	if !sameStrings(got, want) {
 		t.Fatalf("regions = %v, want %v", got, want)
 	}
