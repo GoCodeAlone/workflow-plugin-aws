@@ -30,6 +30,7 @@
     "workflow.plugin.external.iac.IaCProviderValidator",
     "workflow.plugin.external.iac.IaCProviderDriftConfigDetector",
     "workflow.plugin.external.iac.IaCProviderRequirementMapper",
+    "workflow.plugin.external.iac.IaCProviderRegionLister",
     "workflow.plugin.external.iac.ResourceDriver",
     "workflow.plugin.external.iac.IaCStateBackend"
   ],

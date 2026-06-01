@@ -48,6 +48,7 @@ type awsIaCServer struct {
 	pb.UnimplementedIaCProviderValidatorServer
 	pb.UnimplementedIaCProviderDriftConfigDetectorServer
 	pb.UnimplementedIaCProviderRequirementMapperServer
+	pb.UnimplementedIaCProviderRegionListerServer
 	pb.UnimplementedResourceDriverServer
 	pb.UnimplementedIaCStateBackendServer
 
@@ -87,6 +88,7 @@ var (
 	_ pb.IaCProviderDriftDetectorServer     = (*awsIaCServer)(nil)
 	_ pb.ResourceDriverServer               = (*awsIaCServer)(nil)
 	_ pb.IaCProviderRequirementMapperServer = (*awsIaCServer)(nil)
+	_ pb.IaCProviderRegionListerServer      = (*awsIaCServer)(nil)
 	// awsIaCServer also SERVES the typed IaC state-backend contract (s3
 	// backend). The SDK serve hook auto-registers this via type-assertion at
 	// plugin startup — see cmd/workflow-plugin-aws/main.go.
