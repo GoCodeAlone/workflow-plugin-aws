@@ -50,10 +50,9 @@ func (s *awsIaCServer) ListRegions(ctx context.Context, _ *pb.ListRegionsRequest
 		cfg, ok := s.provider.AWSConfigSnapshot()
 		if ok {
 			regions, err := listAWSRegions(ctx, cfg)
-			if err != nil {
-				return nil, err
+			if err == nil {
+				return providerRegionsResponse(regions), nil
 			}
-			return providerRegionsResponse(regions), nil
 		}
 	}
 	return providerRegionsResponse(awsFallbackRegions), nil
