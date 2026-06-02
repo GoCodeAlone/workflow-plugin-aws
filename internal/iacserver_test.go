@@ -75,6 +75,7 @@ func TestIaCServer_CompileTimeGuards(t *testing.T) {
 	// If any of the interface assertions below fail to compile, this file will not build.
 	var _ pb.IaCProviderRequiredServer = (*awsIaCServer)(nil)
 	var _ pb.IaCProviderDriftDetectorServer = (*awsIaCServer)(nil)
+	var _ pb.IaCProviderOwnershipServer = (*awsIaCServer)(nil)
 	var _ pb.ResourceDriverServer = (*awsIaCServer)(nil)
 }
 

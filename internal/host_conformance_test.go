@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
@@ -137,6 +139,32 @@ func capabilitiesHasResource(capabilities *pb.CapabilitiesResponse, resourceType
 		}
 	}
 	return false
+}
+
+func TestEmbeddedManifestIaCServicesMatchRootManifest(t *testing.T) {
+	repoRoot := hostConformanceRepoRoot(t)
+	rootServices := readManifestIaCServices(t, filepath.Join(repoRoot, "plugin.json"))
+	embeddedServices := readManifestIaCServices(t, filepath.Join(repoRoot, "cmd", "workflow-plugin-aws", "plugin.json"))
+	sort.Strings(rootServices)
+	sort.Strings(embeddedServices)
+	if !reflect.DeepEqual(rootServices, embeddedServices) {
+		t.Fatalf("embedded manifest iacServices = %v, want root manifest services %v", embeddedServices, rootServices)
+	}
+}
+
+func readManifestIaCServices(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var manifest struct {
+		IaCServices []string `json:"iacServices"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	return append([]string(nil), manifest.IaCServices...)
 }
 
 // TestCapabilityParity_IaCStateBackends asserts that every iac.state backend

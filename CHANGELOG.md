@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- AWS ownership tagging support via `IaCProviderOwnership`, using the
+  `workflow-owner` tag key for ARN-backed resources.
+- Manifest parity coverage for root and embedded `iacServices` declarations.
+
+### Changed
+
+- `minEngineVersion` now requires workflow `0.69.1+`, matching the
+  ownership-service contract.
+
 ## [2.0.0-rc1] — 2026-05-17
 
 ### Breaking changes (workflow#699)

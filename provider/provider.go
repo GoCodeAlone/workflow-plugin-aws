@@ -8,6 +8,7 @@ import (
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 
 	"github.com/GoCodeAlone/workflow-plugin-aws/drivers"
 	"github.com/GoCodeAlone/workflow-plugin-aws/internal/awscreds"
@@ -30,6 +31,8 @@ type AWSProvider struct {
 	region      string
 	cfg         awssdk.Config
 	driverMap   map[string]interfaces.ResourceDriver
+
+	ownershipClient ownershipTaggingClient
 }
 
 // NewAWSProvider creates a new AWS provider.
@@ -125,6 +128,7 @@ func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) err
 		return fmt.Errorf("aws: load config: %w", err)
 	}
 	p.cfg = cfg
+	p.ownershipClient = resourcegroupstaggingapi.NewFromConfig(cfg)
 
 	ecsCluster, _ := config["ecs_cluster"].(string)
 	p.registerDrivers(cfg, ecsCluster, region)

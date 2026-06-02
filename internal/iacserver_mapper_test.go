@@ -185,16 +185,24 @@ func TestPluginManifestAdvertisesRequirementMapper(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("parse plugin.json: %v", err)
 	}
-	if manifest.MinEngineVersion != "0.68.2" {
-		t.Fatalf("minEngineVersion = %q, want 0.68.2", manifest.MinEngineVersion)
+	if manifest.MinEngineVersion != "0.69.1" {
+		t.Fatalf("minEngineVersion = %q, want 0.69.1", manifest.MinEngineVersion)
 	}
-	const mapperService = "workflow.plugin.external.iac.IaCProviderRequirementMapper"
-	for _, svc := range manifest.IaCServices {
-		if svc == mapperService {
-			return
+	for _, want := range []string{
+		"workflow.plugin.external.iac.IaCProviderRequirementMapper",
+		"workflow.plugin.external.iac.IaCProviderOwnership",
+	} {
+		found := false
+		for _, svc := range manifest.IaCServices {
+			if svc == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("iacServices missing %s: %v", want, manifest.IaCServices)
 		}
 	}
-	t.Fatalf("iacServices missing %s: %v", mapperService, manifest.IaCServices)
 }
 
 func newMapperTestConn(t *testing.T) *grpc.ClientConn {
