@@ -49,6 +49,7 @@ type awsIaCServer struct {
 	pb.UnimplementedIaCProviderDriftConfigDetectorServer
 	pb.UnimplementedIaCProviderRequirementMapperServer
 	pb.UnimplementedIaCProviderRegionListerServer
+	pb.UnimplementedIaCProviderOwnershipServer
 	pb.UnimplementedResourceDriverServer
 	pb.UnimplementedIaCStateBackendServer
 
@@ -89,6 +90,7 @@ var (
 	_ pb.ResourceDriverServer               = (*awsIaCServer)(nil)
 	_ pb.IaCProviderRequirementMapperServer = (*awsIaCServer)(nil)
 	_ pb.IaCProviderRegionListerServer      = (*awsIaCServer)(nil)
+	_ pb.IaCProviderOwnershipServer         = (*awsIaCServer)(nil)
 	// awsIaCServer also SERVES the typed IaC state-backend contract (s3
 	// backend). The SDK serve hook auto-registers this via type-assertion at
 	// plugin startup — see cmd/workflow-plugin-aws/main.go.
@@ -248,6 +250,42 @@ func (s *awsIaCServer) DetectDriftWithSpecs(ctx context.Context, req *pb.DetectD
 		return nil, fmt.Errorf("aws iacserver: encode DetectDriftWithSpecs response: %w", err)
 	}
 	return &pb.DetectDriftWithSpecsResponse{Drifts: pbDrifts}, nil
+}
+
+// ── Optional: Ownership ───────────────────────────────────────────────────
+
+func (s *awsIaCServer) GetOwner(ctx context.Context, req *pb.GetOwnerRequest) (*pb.GetOwnerResponse, error) {
+	owner, err := s.provider.GetOwner(ctx, refFromPB(req.GetRef()))
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetOwnerResponse{Owner: owner.Owner, Source: owner.Source}, nil
+}
+
+func (s *awsIaCServer) SetOwner(ctx context.Context, req *pb.SetOwnerRequest) (*pb.SetOwnerResponse, error) {
+	if err := s.provider.SetOwner(ctx, refFromPB(req.GetRef()), req.GetOwner()); err != nil {
+		return nil, err
+	}
+	return &pb.SetOwnerResponse{}, nil
+}
+
+func (s *awsIaCServer) ListOwners(ctx context.Context, req *pb.ListOwnersRequest) (*pb.ListOwnersResponse, error) {
+	owners, err := s.provider.ListOwners(ctx, interfaces.OwnerFilter{
+		Owner:        req.GetOwner(),
+		ResourceType: req.GetResourceType(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*pb.OwnedResource, 0, len(owners))
+	for _, owner := range owners {
+		out = append(out, &pb.OwnedResource{
+			Ref:    refToPB(owner.Ref),
+			Owner:  owner.Owner,
+			Source: owner.Source,
+		})
+	}
+	return &pb.ListOwnersResponse{Resources: out}, nil
 }
 
 // ── Marshalling helpers (pb ↔ Go) ───────────────────────────────────────────
