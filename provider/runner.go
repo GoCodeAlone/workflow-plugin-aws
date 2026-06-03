@@ -76,6 +76,9 @@ func (p *AWSProvider) RunJob(ctx context.Context, spec interfaces.JobSpec) (*int
 	if strings.TrimSpace(spec.RunCommand) == "" {
 		return nil, fmt.Errorf("aws runner: run_command is required")
 	}
+	if len(cfg.subnetIDs) > 0 && cfg.taskExecutionRoleARN == "" {
+		return nil, fmt.Errorf("aws runner: ecs_task_execution_role_arn is required when ecs_subnet_ids selects Fargate")
+	}
 
 	name := awsJobName(spec.Name)
 	tdOut, err := client.RegisterTaskDefinition(ctx, awsTaskDefinitionInput(name, spec, cfg))
@@ -157,26 +160,35 @@ func (p *AWSProvider) JobLogs(ctx context.Context, handle interfaces.JobHandle, 
 	if logGroup == "" || logStream == "" {
 		return sink.WriteLogChunk(interfaces.LogChunk{EOF: true})
 	}
-	out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  awssdk.String(logGroup),
-		LogStreamName: awssdk.String(logStream),
-		StartFromHead: awssdk.Bool(true),
-		Limit:         awssdk.Int32(200),
-	})
-	if err != nil {
-		return fmt.Errorf("aws runner: get log events %q/%q: %w", logGroup, logStream, err)
-	}
-	for _, event := range out.Events {
-		msg := awssdk.ToString(event.Message)
-		if msg == "" {
-			continue
+	var nextToken *string
+	for {
+		in := &cloudwatchlogs.GetLogEventsInput{
+			LogGroupName:  awssdk.String(logGroup),
+			LogStreamName: awssdk.String(logStream),
+			StartFromHead: awssdk.Bool(true),
+			Limit:         awssdk.Int32(1000),
+			NextToken:     nextToken,
 		}
-		if !strings.HasSuffix(msg, "\n") {
-			msg += "\n"
+		out, err := client.GetLogEvents(ctx, in)
+		if err != nil {
+			return fmt.Errorf("aws runner: get log events %q/%q: %w", logGroup, logStream, err)
 		}
-		if err := sink.WriteLogChunk(interfaces.LogChunk{Data: []byte(msg), Source: "stdout"}); err != nil {
-			return err
+		for _, event := range out.Events {
+			msg := awssdk.ToString(event.Message)
+			if msg == "" {
+				continue
+			}
+			if !strings.HasSuffix(msg, "\n") {
+				msg += "\n"
+			}
+			if err := sink.WriteLogChunk(interfaces.LogChunk{Data: []byte(msg), Source: "stdout"}); err != nil {
+				return err
+			}
 		}
+		if out.NextForwardToken == nil || (nextToken != nil && awssdk.ToString(out.NextForwardToken) == awssdk.ToString(nextToken)) {
+			break
+		}
+		nextToken = out.NextForwardToken
 	}
 	return sink.WriteLogChunk(interfaces.LogChunk{EOF: true})
 }
@@ -317,10 +329,12 @@ func awsTaskFailures(failures []ecstypes.Failure) string {
 func awsTaskState(task ecstypes.Task) (interfaces.JobState, int, string) {
 	status := strings.ToUpper(awssdk.ToString(task.LastStatus))
 	exitCode := 0
+	hasExitCode := false
 	message := awssdk.ToString(task.StoppedReason)
 	for _, container := range task.Containers {
 		if container.ExitCode != nil {
 			exitCode = int(*container.ExitCode)
+			hasExitCode = true
 		}
 		if message == "" {
 			message = awssdk.ToString(container.Reason)
@@ -332,6 +346,9 @@ func awsTaskState(task ecstypes.Task) (interfaces.JobState, int, string) {
 	case "RUNNING":
 		return interfaces.JobStateRunning, exitCode, message
 	case "STOPPED", "DEACTIVATING", "DEPROVISIONING":
+		if !hasExitCode {
+			return interfaces.JobStateFailed, 1, message
+		}
 		if exitCode == 0 {
 			return interfaces.JobStateSucceeded, exitCode, message
 		}

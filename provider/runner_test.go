@@ -99,6 +99,27 @@ func TestAWSRunnerRunJobCreatesFargateTask(t *testing.T) {
 	}
 }
 
+func TestAWSRunnerRunJobRequiresExecutionRoleForFargate(t *testing.T) {
+	p := &AWSProvider{
+		initialized:  true,
+		runnerClient: &fakeAWSRunnerClient{},
+		runnerConfig: awsRunnerConfig{
+			cluster:   "default",
+			region:    "us-east-1",
+			subnetIDs: []string{"subnet-1"},
+			logGroup:  "/workflow/provider-ephemeral",
+		},
+	}
+	_, err := p.RunJob(context.Background(), interfaces.JobSpec{
+		Name:       "job",
+		Image:      "repo/app:latest",
+		RunCommand: "echo ok",
+	})
+	if err == nil || !strings.Contains(err.Error(), "ecs_task_execution_role_arn is required") {
+		t.Fatalf("RunJob error = %v", err)
+	}
+}
+
 func TestAWSRunnerStatusAndLogs(t *testing.T) {
 	exit := int32(7)
 	client := &fakeAWSRunnerClient{
@@ -136,6 +157,26 @@ func TestAWSRunnerStatusAndLogs(t *testing.T) {
 	}
 	if string(sink.data) != "migration failed\n" || !sink.eof {
 		t.Fatalf("sink data=%q eof=%v", string(sink.data), sink.eof)
+	}
+}
+
+func TestAWSRunnerStoppedTaskWithoutExitCodeFails(t *testing.T) {
+	client := &fakeAWSRunnerClient{
+		task: ecstypes.Task{
+			LastStatus:    awssdk.String("STOPPED"),
+			StoppedReason: awssdk.String("CannotPullContainerError"),
+		},
+	}
+	p := &AWSProvider{runnerClient: client, runnerConfig: awsRunnerConfig{cluster: "default"}}
+	status, err := p.JobStatus(context.Background(), interfaces.JobHandle{
+		ID:       "task-1",
+		Metadata: map[string]string{"cluster": "default", "task_arn": "task-1"},
+	})
+	if err != nil {
+		t.Fatalf("JobStatus returned error: %v", err)
+	}
+	if status.State != interfaces.JobStateFailed || status.ExitCode != 1 {
+		t.Fatalf("status = %+v", status)
 	}
 }
 
