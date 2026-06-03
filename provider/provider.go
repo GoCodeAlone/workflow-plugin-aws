@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,8 @@ type AWSProvider struct {
 	driverMap   map[string]interfaces.ResourceDriver
 
 	ownershipClient ownershipTaggingClient
+	runnerClient    awsRunnerClient
+	runnerConfig    awsRunnerConfig
 }
 
 // NewAWSProvider creates a new AWS provider.
@@ -66,6 +69,9 @@ func (p *AWSProvider) AWSConfigSnapshot() (awssdk.Config, bool) {
 //   - region
 //   - access_key_id, secret_access_key
 //   - ecs_cluster
+//   - ecs_subnet_ids, ecs_security_group_ids
+//   - ecs_task_execution_role_arn
+//   - ecs_runner_log_group
 //
 // Supported config keys under the nested `credentials:` block (preferred
 // shape — mirrors the standalone-module path from plan-2 Tasks 4-6):
@@ -131,6 +137,21 @@ func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) err
 	p.ownershipClient = resourcegroupstaggingapi.NewFromConfig(cfg)
 
 	ecsCluster, _ := config["ecs_cluster"].(string)
+	if ecsCluster == "" {
+		ecsCluster = "default"
+	}
+	p.runnerConfig = awsRunnerConfig{
+		cluster:              ecsCluster,
+		region:               region,
+		subnetIDs:            stringSliceConfig(config["ecs_subnet_ids"]),
+		securityGroupIDs:     stringSliceConfig(config["ecs_security_group_ids"]),
+		taskExecutionRoleARN: stringConfig(config["ecs_task_execution_role_arn"]),
+		logGroup:             stringConfig(config["ecs_runner_log_group"]),
+	}
+	if p.runnerConfig.logGroup == "" {
+		p.runnerConfig.logGroup = "/workflow/provider-ephemeral"
+	}
+	p.runnerClient = newRealAWSRunnerClient(cfg)
 	p.registerDrivers(cfg, ecsCluster, region)
 	p.initialized = true
 	return nil
@@ -188,6 +209,37 @@ func (p *AWSProvider) ResourceDriver(resourceType string) (interfaces.ResourceDr
 		return nil, fmt.Errorf("aws: no driver for resource type %q", resourceType)
 	}
 	return d, nil
+}
+
+func stringConfig(raw any) string {
+	v, _ := raw.(string)
+	return v
+}
+
+func stringSliceConfig(raw any) []string {
+	switch values := raw.(type) {
+	case []string:
+		return append([]string(nil), values...)
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if s, ok := value.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		var out []string
+		for _, part := range strings.Split(values, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // Plan computes required create/update/delete actions for the desired state.
@@ -387,11 +439,18 @@ func (p *AWSProvider) ResolveSizing(resourceType string, size interfaces.Size, h
 }
 
 // SupportedCanonicalKeys returns the full canonical IaC key set plus the
-// AWS-specific keys accepted by this provider (access_key_id, secret_access_key,
-// ecs_cluster).
+// AWS-specific keys accepted by this provider.
 func (p *AWSProvider) SupportedCanonicalKeys() []string {
 	canonical := interfaces.CanonicalKeys()
-	awsSpecific := []string{"access_key_id", "secret_access_key", "ecs_cluster"}
+	awsSpecific := []string{
+		"access_key_id",
+		"secret_access_key",
+		"ecs_cluster",
+		"ecs_subnet_ids",
+		"ecs_security_group_ids",
+		"ecs_task_execution_role_arn",
+		"ecs_runner_log_group",
+	}
 	result := make([]string, 0, len(canonical)+len(awsSpecific))
 	result = append(result, canonical...)
 	result = append(result, awsSpecific...)

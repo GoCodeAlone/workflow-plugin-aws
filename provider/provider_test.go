@@ -130,8 +130,16 @@ func TestAWSProvider_SupportedCanonicalKeys(t *testing.T) {
 			t.Errorf("SupportedCanonicalKeys missing canonical key %q", required)
 		}
 	}
-	// Must also include the AWS-specific credential and cluster keys.
-	for _, required := range []string{"access_key_id", "secret_access_key", "ecs_cluster"} {
+	// Must also include the AWS-specific credential, cluster, and runner keys.
+	for _, required := range []string{
+		"access_key_id",
+		"secret_access_key",
+		"ecs_cluster",
+		"ecs_subnet_ids",
+		"ecs_security_group_ids",
+		"ecs_task_execution_role_arn",
+		"ecs_runner_log_group",
+	} {
 		if !keySet[required] {
 			t.Errorf("SupportedCanonicalKeys missing AWS-specific key %q", required)
 		}

@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "external",
   "tier": "community",
-  "minEngineVersion": "0.69.1",
+  "minEngineVersion": "0.73.0",
   "iacServices": [
     "workflow.plugin.external.iac.IaCProviderRequired",
     "workflow.plugin.external.iac.IaCProviderEnumerator",
@@ -19,6 +19,7 @@
     "workflow.plugin.external.iac.IaCProviderRegionLister",
     "workflow.plugin.external.iac.IaCProviderOwnership",
     "workflow.plugin.external.iac.ResourceDriver",
+    "workflow.plugin.external.iac.IaCProviderRunner",
     "workflow.plugin.external.iac.IaCStateBackend"
   ],
   "keywords": [
