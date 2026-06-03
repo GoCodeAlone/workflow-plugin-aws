@@ -16,4 +16,12 @@ message AWSProviderConfig {
   string secret_access_key = 3;
   // ecs_cluster is the default ECS cluster name used by the ECS driver.
   string ecs_cluster = 4;
+  // ecs_subnet_ids are default subnet IDs for provider-ephemeral ECS RunTask.
+  repeated string ecs_subnet_ids = 5;
+  // ecs_security_group_ids are default security groups for provider-ephemeral ECS RunTask.
+  repeated string ecs_security_group_ids = 6;
+  // ecs_task_execution_role_arn is the optional ECS task execution role ARN for runner jobs.
+  string ecs_task_execution_role_arn = 7;
+  // ecs_runner_log_group is the CloudWatch Logs group used by runner jobs.
+  string ecs_runner_log_group = 8;
 }
