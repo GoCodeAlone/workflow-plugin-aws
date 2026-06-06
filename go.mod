@@ -1,6 +1,6 @@
 module github.com/GoCodeAlone/workflow-plugin-aws
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/GoCodeAlone/workflow v0.73.0
@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.33.8
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.16
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.2
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.74.4
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.296.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.44.2
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.76.0
@@ -50,7 +51,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.27 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.27 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.23 // indirect
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.74.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22 // indirect
