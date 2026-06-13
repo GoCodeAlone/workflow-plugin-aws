@@ -41,13 +41,13 @@ wfctl plugin install
 
 See [`examples/minimal/config.yaml`](examples/minimal/config.yaml).
 
-**Required environment variables:**
+**Required environment values:**
 
-| Variable | Description |
-|----------|-------------|
-| `AWS_REGION` | AWS region (e.g. `us-east-1`) |
-| `AWS_ACCESS_KEY_ID` | AWS access key ID |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret access key |
+| Variable | Kind | Description |
+|----------|------|-------------|
+| `AWS_REGION` | var | AWS region (e.g. `us-east-1`) |
+| `AWS_ACCESS_KEY_ID` | var | AWS access key ID |
+| `AWS_SECRET_ACCESS_KEY` | secret | AWS secret access key |
 
 Alternatively, configure an IAM role on the host (the plugin respects the standard AWS credential chain).
 
