@@ -107,6 +107,9 @@ func TestS3DownloadStep_Execute_UsesStorageS3GetObject(t *testing.T) {
 		t.Fatalf("GetObject bucket/key = %q/%q, want media-bucket/inputs/job-7.mov", fakeS3.bucket, fakeS3.key)
 	}
 	wantBody := base64.StdEncoding.EncodeToString([]byte("MOVDATA"))
+	if got := res.Output["body"]; got != wantBody {
+		t.Errorf("Output[body] = %v, want %q", got, wantBody)
+	}
 	if got := res.Output["payload"]; got != wantBody {
 		t.Errorf("Output[payload] = %v, want %q", got, wantBody)
 	}
@@ -121,6 +124,17 @@ func TestS3DownloadStep_Execute_UsesStorageS3GetObject(t *testing.T) {
 	}
 	if leaked := outputContains(res.Output, "SHOULD_NOT_LEAK") || outputContains(res.Output, "AKIA_TEST"); leaked {
 		t.Fatalf("step output leaked credential material: %#v", res.Output)
+	}
+}
+
+func TestS3DownloadStepProvider_CreateStep_StorageRefDoesNotReplaceBucket(t *testing.T) {
+	p := NewS3DownloadStepProvider()
+	_, err := p.CreateStep("step.s3_download", "x", map[string]any{
+		"storage_ref": "media-store",
+		"key":         "inputs/movie.mov",
+	})
+	if err == nil || !strings.Contains(err.Error(), "'bucket' is required") {
+		t.Fatalf("err = %v, want bucket-required error", err)
 	}
 }
 

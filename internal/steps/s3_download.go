@@ -32,11 +32,11 @@ func (p *S3DownloadStepProvider) StepTypes() []string {
 func (p *S3DownloadStepProvider) CreateStep(_, name string, config map[string]any) (sdk.StepInstance, error) {
 	bucket := os.ExpandEnv(stringField(config, "bucket"))
 	storageRef := stringField(config, "storage_ref")
-	if bucket == "" && storageRef == "" {
-		return nil, fmt.Errorf("step.s3_download %q: 'bucket' is required unless storage_ref is set", name)
+	if bucket == "" {
+		return nil, fmt.Errorf("step.s3_download %q: 'bucket' is required", name)
 	}
 	region := os.ExpandEnv(stringField(config, "region"))
-	if bucket != "" && region == "" {
+	if region == "" {
 		return nil, fmt.Errorf("step.s3_download %q: 'region' is required", name)
 	}
 	key := stringField(config, "key")
@@ -124,13 +124,17 @@ func (s *s3DownloadStep) Execute(
 		return nil, fmt.Errorf("step.s3_download %q: read %q: %w", s.name, resolvedKey, err)
 	}
 
+	encoded := base64.StdEncoding.EncodeToString(data)
 	out := map[string]any{
-		s.outputName:   base64.StdEncoding.EncodeToString(data),
+		"body":         encoded,
 		"bucket":       s.bucket,
 		"key":          resolvedKey,
 		"content_ref":  s.contentRef(resolvedKey),
 		"storage_ref":  s.storageRef,
 		"content_size": len(data),
+	}
+	if s.outputName != "" && s.outputName != "body" {
+		out[s.outputName] = encoded
 	}
 	if s.artifact != "" {
 		out["artifact"] = s.artifact

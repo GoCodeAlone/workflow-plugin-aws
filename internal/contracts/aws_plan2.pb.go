@@ -479,21 +479,21 @@ func (x *S3UploadStepOutput) GetBucket() string {
 // base64-encoded body under output_name, plus content/artifact metadata.
 type S3DownloadStepConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// bucket is the S3 bucket name. Required unless a future host supplies
-	// storage_ref as a resolved storage.s3 module instance.
+	// bucket is the S3 bucket name (REQUIRED).
 	Bucket string `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
 	// region is the AWS region. Required when bucket is set.
 	Region string `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
 	// endpoint is an optional custom S3 endpoint URL (MinIO / LocalStack).
 	Endpoint string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// storage_ref is the logical storage.s3 module reference for host-level
-	// orchestration metadata.
+	// orchestration metadata. The current step still requires bucket/region and
+	// uses this as metadata rather than as an in-process module lookup.
 	StorageRef string `protobuf:"bytes,4,opt,name=storage_ref,json=storageRef,proto3" json:"storage_ref,omitempty"`
 	// key is a Go text/template-rendered object key. Supports the same template
 	// surface as step.s3_upload.
 	Key string `protobuf:"bytes,5,opt,name=key,proto3" json:"key,omitempty"`
-	// output_name is the step output field that receives the base64 body.
-	// Defaults to "body".
+	// output_name is an optional alias for the base64 body output. The canonical
+	// strict-contract field "body" is always emitted.
 	OutputName string `protobuf:"bytes,6,opt,name=output_name,json=outputName,proto3" json:"output_name,omitempty"`
 	// artifact is the declared artifact name for compute-provider handoff.
 	Artifact       string               `protobuf:"bytes,7,opt,name=artifact,proto3" json:"artifact,omitempty"`

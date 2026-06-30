@@ -121,21 +121,21 @@ message S3UploadStepOutput {
 // pipeline step. The step fetches an object through storage.s3 and returns a
 // base64-encoded body under output_name, plus content/artifact metadata.
 message S3DownloadStepConfig {
-  // bucket is the S3 bucket name. Required unless a future host supplies
-  // storage_ref as a resolved storage.s3 module instance.
+  // bucket is the S3 bucket name (REQUIRED).
   string bucket = 1;
   // region is the AWS region. Required when bucket is set.
   string region = 2;
   // endpoint is an optional custom S3 endpoint URL (MinIO / LocalStack).
   string endpoint = 3;
   // storage_ref is the logical storage.s3 module reference for host-level
-  // orchestration metadata.
+  // orchestration metadata. The current step still requires bucket/region and
+  // uses this as metadata rather than as an in-process module lookup.
   string storage_ref = 4;
   // key is a Go text/template-rendered object key. Supports the same template
   // surface as step.s3_upload.
   string key = 5;
-  // output_name is the step output field that receives the base64 body.
-  // Defaults to "body".
+  // output_name is an optional alias for the base64 body output. The canonical
+  // strict-contract field "body" is always emitted.
   string output_name = 6;
   // artifact is the declared artifact name for compute-provider handoff.
   string artifact = 7;
