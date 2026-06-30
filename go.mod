@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/GoCodeAlone/workflow v0.73.0
+	github.com/GoCodeAlone/workflow-plugin-compute-core v0.8.3
 	github.com/aws/aws-sdk-go-v2 v1.41.11
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15

@@ -96,9 +96,9 @@ func resolveAWSCredentials(moduleName string, config map[string]any) (awscreds.C
 	return awscreds.CredInput{Region: region}, nil
 }
 
-// s3API is the subset of *s3.Client the storage module calls. Lets tests
+// S3API is the subset of *s3.Client the storage module calls. Lets tests
 // inject a mock without spinning up a real S3 endpoint.
-type s3API interface {
+type S3API interface {
 	PutObject(ctx context.Context, input *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	GetObject(ctx context.Context, input *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, opts ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
@@ -114,12 +114,12 @@ type s3StorageInstance struct {
 	cred     awscreds.CredInput
 
 	mu     sync.Mutex
-	client s3API
+	client S3API
 }
 
-// SetTestClient injects a fake s3API for tests so Storage operations can be
+// SetTestClient injects a fake S3API for tests so Storage operations can be
 // exercised without a real S3 endpoint.
-func (m *s3StorageInstance) SetTestClient(c s3API) {
+func (m *s3StorageInstance) SetTestClient(c S3API) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.client = c
@@ -161,7 +161,7 @@ func (m *s3StorageInstance) Stop(_ context.Context) error {
 	return nil
 }
 
-func (m *s3StorageInstance) getClient() (s3API, error) {
+func (m *s3StorageInstance) getClient() (S3API, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.client == nil {

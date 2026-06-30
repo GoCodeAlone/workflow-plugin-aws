@@ -9,6 +9,7 @@ option go_package = "github.com/GoCodeAlone/workflow-plugin-aws/internal/contrac
 //   - aws.credentials (module)
 //   - storage.s3 (module)
 //   - step.s3_upload (step)
+//   - step.s3_download (step)
 //
 // The Provider implementations in this repo stay on the legacy
 // sdk.ModuleProvider / sdk.StepProvider config-Struct path per plan-2's
@@ -114,4 +115,42 @@ message S3UploadStepOutput {
   string key = 2;
   // bucket is the S3 bucket name the object was uploaded to.
   string bucket = 3;
+}
+
+// S3DownloadStepConfig is the typed configuration for the step.s3_download
+// pipeline step. The step fetches an object through storage.s3 and returns a
+// base64-encoded body under output_name, plus content/artifact metadata.
+message S3DownloadStepConfig {
+  // bucket is the S3 bucket name (REQUIRED).
+  string bucket = 1;
+  // region is the AWS region. Required when bucket is set.
+  string region = 2;
+  // endpoint is an optional custom S3 endpoint URL (MinIO / LocalStack).
+  string endpoint = 3;
+  // storage_ref is the logical storage.s3 module reference for host-level
+  // orchestration metadata. The current step still requires bucket/region and
+  // uses this as metadata rather than as an in-process module lookup.
+  string storage_ref = 4;
+  // key is a Go text/template-rendered object key. Supports the same template
+  // surface as step.s3_upload.
+  string key = 5;
+  // output_name is an optional alias for the base64 body output. The canonical
+  // strict-contract field "body" is always emitted.
+  string output_name = 6;
+  // artifact is the declared artifact name for compute-provider handoff.
+  string artifact = 7;
+  string content_type = 8;
+  string credentials_ref = 9;
+  AWSCredentialsBlock credentials = 10;
+}
+
+message S3DownloadStepOutput {
+  string body = 1;
+  string bucket = 2;
+  string key = 3;
+  string content_ref = 4;
+  string storage_ref = 5;
+  string artifact = 6;
+  string content_type = 7;
+  int64 content_size = 8;
 }

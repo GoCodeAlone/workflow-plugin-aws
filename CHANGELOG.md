@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - AWS ownership tagging support via `IaCProviderOwnership`, using the
   `workflow-owner` tag key for ARN-backed resources.
 - Manifest parity coverage for root and embedded `iacServices` declarations.
+- `step.s3_download`, which fetches S3 objects through the existing
+  `storage.s3` module and emits base64 body plus content/artifact metadata.
+- Compute content-source contract metadata for provider operation `s3_fetch`,
+  backed by the AWS plugin rather than compute/media repos importing AWS SDKs.
 
 ### Changed
 

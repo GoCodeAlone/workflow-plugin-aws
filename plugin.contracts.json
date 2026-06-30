@@ -25,6 +25,13 @@
       "mode": "strict",
       "config": "workflow.plugins.aws.v1.S3UploadStepConfig",
       "output": "workflow.plugins.aws.v1.S3UploadStepOutput"
+    },
+    {
+      "kind": "step",
+      "type": "step.s3_download",
+      "mode": "strict",
+      "config": "workflow.plugins.aws.v1.S3DownloadStepConfig",
+      "output": "workflow.plugins.aws.v1.S3DownloadStepOutput"
     }
   ]
 }

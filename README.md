@@ -12,10 +12,14 @@ AWS provider plugin for workflow IaC — manages ECS, EKS, RDS, ElastiCache, VPC
 **Module types:**
 - `iac.provider` — AWS IaC provider (v2 compute-plan dispatch)
 - `aws.credentials` — AWS credential configuration module
-- `storage.s3` — S3 storage backend module
+- `storage.s3` — S3 storage backend and content-source owner
 
 **Pipeline step types:**
+- `step.s3_download` — Fetch S3 objects through `storage.s3` and emit base64 body plus content/artifact metadata
 - `step.s3_upload` — Upload files to S3 from a pipeline step
+
+**Compute provider operations:**
+- `s3_fetch` — Provider contract metadata for materializing S3 content as proof-bound artifacts for downstream compute/media chains
 
 **IaC state backends:**
 - `s3` — Remote state stored in S3
