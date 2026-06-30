@@ -29,6 +29,7 @@ func ModuleProviders() map[string]sdk.ModuleProvider {
 // test in host_conformance_test.go enforces that invariant.
 func StepProviders() map[string]sdk.StepProvider {
 	return map[string]sdk.StepProvider{
-		"step.s3_upload": steps.NewS3UploadStepProvider(),
+		"step.s3_download": steps.NewS3DownloadStepProvider(),
+		"step.s3_upload":   steps.NewS3UploadStepProvider(),
 	}
 }

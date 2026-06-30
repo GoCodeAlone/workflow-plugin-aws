@@ -67,6 +67,7 @@
       "storage.s3"
     ],
     "stepTypes": [
+      "step.s3_download",
       "step.s3_upload"
     ],
     "triggerTypes": [],
