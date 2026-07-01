@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"sync"
 
 	"github.com/GoCodeAlone/workflow/interfaces"
@@ -51,10 +52,9 @@ func (d *mockResourceDriver) Update(_ context.Context, ref interfaces.ResourceRe
 	if _, ok := d.resources[ref.Name]; !ok {
 		return nil, fmt.Errorf("mock aws: %s %q not found", d.resourceType, ref.Name)
 	}
-	out := d.outputFromSpec(spec, "running")
-	if out.Name == "" {
-		out.Name = ref.Name
-	}
+	updateSpec := spec
+	updateSpec.Name = ref.Name
+	out := d.outputFromSpec(updateSpec, "running")
 	d.resources[ref.Name] = cloneResourceOutput(out)
 	return out, nil
 }
@@ -74,7 +74,7 @@ func (d *mockResourceDriver) Diff(_ context.Context, desired interfaces.Resource
 
 	var changes []interfaces.FieldChange
 	for key, want := range desired.Config {
-		if got, ok := current.Outputs[key]; !ok || got != want {
+		if got, ok := current.Outputs[key]; !ok || !reflect.DeepEqual(got, want) {
 			changes = append(changes, interfaces.FieldChange{
 				Path: key,
 				Old:  got,
