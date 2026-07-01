@@ -95,6 +95,16 @@ func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) err
 	}
 	p.region = region
 
+	if providerMode(config) == "mock" {
+		p.cfg = awssdk.Config{Region: region}
+		p.ownershipClient = nil
+		p.runnerClient = nil
+		p.runnerConfig = awsRunnerConfig{}
+		p.registerMockDrivers()
+		p.initialized = true
+		return nil
+	}
+
 	cred := awscreds.CredInput{Region: region}
 	// Back-compat: top-level access_key_id / secret_access_key still honoured.
 	cred.AccessKey, _ = config["access_key_id"].(string)
@@ -157,6 +167,21 @@ func (p *AWSProvider) Initialize(ctx context.Context, config map[string]any) err
 	return nil
 }
 
+func providerMode(config map[string]any) string {
+	if mode, _ := config["mode"].(string); mode != "" {
+		return strings.ToLower(strings.TrimSpace(mode))
+	}
+	if mock, _ := config["mock"].(bool); mock {
+		return "mock"
+	}
+	if credsMap, ok := config["credentials"].(map[string]any); ok {
+		if mode, _ := credsMap["type"].(string); mode != "" {
+			return strings.ToLower(strings.TrimSpace(mode))
+		}
+	}
+	return ""
+}
+
 func (p *AWSProvider) registerDrivers(cfg awssdk.Config, ecsCluster, region string) {
 	driverList := []interface {
 		ResourceType() string
@@ -179,6 +204,13 @@ func (p *AWSProvider) registerDrivers(cfg awssdk.Config, ecsCluster, region stri
 	}
 	for _, d := range driverList {
 		p.driverMap[d.ResourceType()] = d
+	}
+}
+
+func (p *AWSProvider) registerMockDrivers() {
+	clear(p.driverMap)
+	for _, cap := range p.Capabilities() {
+		p.driverMap[cap.ResourceType] = newMockResourceDriver(cap.ResourceType)
 	}
 }
 
@@ -445,6 +477,7 @@ func (p *AWSProvider) SupportedCanonicalKeys() []string {
 	awsSpecific := []string{
 		"access_key_id",
 		"secret_access_key",
+		"mode",
 		"ecs_cluster",
 		"ecs_subnet_ids",
 		"ecs_security_group_ids",

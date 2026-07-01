@@ -45,6 +45,11 @@ wfctl plugin install
 
 See [`examples/minimal/config.yaml`](examples/minimal/config.yaml).
 
+For local Workflow scenarios and conformance tests that must not contact AWS,
+set the provider module config to `mode: mock`. Mock mode registers in-memory
+drivers for the same `infra.*` resource types and skips AWS credential loading.
+It is not a production backend and state lasts only for the plugin process.
+
 **Required environment values:**
 
 | Variable | Kind | Description |

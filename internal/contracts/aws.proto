@@ -24,4 +24,7 @@ message AWSProviderConfig {
   string ecs_task_execution_role_arn = 7;
   // ecs_runner_log_group is the CloudWatch Logs group used by runner jobs.
   string ecs_runner_log_group = 8;
+  // mode selects the provider backend. Empty/default uses real AWS; "mock"
+  // uses an in-memory provider for local Workflow scenarios and tests.
+  string mode = 9;
 }
