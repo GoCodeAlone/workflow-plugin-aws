@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GoCodeAlone/workflow-plugin-aws/provider"
 	"github.com/GoCodeAlone/workflow/interfaces"
@@ -111,6 +112,65 @@ func TestAWSProvider_ResourceDriver_UnknownType(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no driver for resource type") {
 		t.Errorf("expected 'no driver for resource type' error, got: %v", err)
+	}
+}
+
+func TestAWSProvider_MockModeProvidesInMemoryContainerServiceDriver(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	p := provider.NewAWSProviderConcrete()
+	if err := p.Initialize(ctx, map[string]any{
+		"mode":   "mock",
+		"region": "us-east-1",
+	}); err != nil {
+		t.Fatalf("Initialize mock provider: %v", err)
+	}
+
+	driver, err := p.ResourceDriver("infra.container_service")
+	if err != nil {
+		t.Fatalf("ResourceDriver infra.container_service: %v", err)
+	}
+
+	out, err := driver.Create(ctx, interfaces.ResourceSpec{
+		Name: "staging-ecs",
+		Type: "infra.container_service",
+		Config: map[string]any{
+			"image":    "public.ecr.aws/nginx/nginx:latest",
+			"replicas": 2,
+			"cluster":  "staging-cluster",
+			"region":   "us-east-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create mock container service: %v", err)
+	}
+	if out.ProviderID == "" {
+		t.Fatal("Create mock container service returned empty provider id")
+	}
+	if out.Status != "running" {
+		t.Fatalf("Create status = %q, want running", out.Status)
+	}
+	if out.Outputs["image"] != "public.ecr.aws/nginx/nginx:latest" {
+		t.Fatalf("Create image output = %v", out.Outputs["image"])
+	}
+	if out.Outputs["replicas"] != 2 {
+		t.Fatalf("Create replicas output = %v", out.Outputs["replicas"])
+	}
+
+	read, err := driver.Read(ctx, interfaces.ResourceRef{Name: "staging-ecs", Type: "infra.container_service"})
+	if err != nil {
+		t.Fatalf("Read mock container service: %v", err)
+	}
+	if read.ProviderID != out.ProviderID {
+		t.Fatalf("Read provider id = %q, want %q", read.ProviderID, out.ProviderID)
+	}
+
+	if err := driver.Delete(ctx, interfaces.ResourceRef{Name: "staging-ecs", Type: "infra.container_service"}); err != nil {
+		t.Fatalf("Delete mock container service: %v", err)
+	}
+	if _, err := driver.Read(ctx, interfaces.ResourceRef{Name: "staging-ecs", Type: "infra.container_service"}); err == nil {
+		t.Fatal("Read after delete succeeded; want not found error")
 	}
 }
 
