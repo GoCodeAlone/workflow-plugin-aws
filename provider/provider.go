@@ -236,11 +236,7 @@ func (p *AWSProvider) Capabilities() []interfaces.IaCCapabilityDeclaration {
 func (p *AWSProvider) ResourceDriver(resourceType string) (interfaces.ResourceDriver, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	d, ok := p.driverMap[resourceType]
-	if !ok {
-		return nil, fmt.Errorf("aws: no driver for resource type %q", resourceType)
-	}
-	return d, nil
+	return p.resourceDriver(resourceType)
 }
 
 func stringConfig(raw any) string {
@@ -276,10 +272,8 @@ func stringSliceConfig(raw any) []string {
 
 // Plan computes required create/update/delete actions for the desired state.
 func (p *AWSProvider) Plan(ctx context.Context, desired []interfaces.ResourceSpec, current []interfaces.ResourceState) (*interfaces.IaCPlan, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
+	if err := p.ensureInitialized(); err != nil {
+		return nil, err
 	}
 
 	currentMap := make(map[string]*interfaces.ResourceState, len(current))
@@ -302,7 +296,7 @@ func (p *AWSProvider) Plan(ctx context.Context, desired []interfaces.ResourceSpe
 			continue
 		}
 
-		drv, err := p.resourceDriver(spec.Type)
+		drv, err := p.initializedResourceDriver(spec.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -335,15 +329,9 @@ func (p *AWSProvider) Plan(ctx context.Context, desired []interfaces.ResourceSpe
 
 // Destroy deletes a set of resources.
 func (p *AWSProvider) Destroy(ctx context.Context, resources []interfaces.ResourceRef) (*interfaces.DestroyResult, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
-	}
-
 	result := &interfaces.DestroyResult{}
 	for _, ref := range resources {
-		drv, err := p.resourceDriver(ref.Type)
+		drv, err := p.initializedResourceDriver(ref.Type)
 		if err != nil {
 			result.Errors = append(result.Errors, interfaces.ActionError{
 				Resource: ref.Name,
@@ -367,15 +355,9 @@ func (p *AWSProvider) Destroy(ctx context.Context, resources []interfaces.Resour
 
 // Status returns the live status of the given resources.
 func (p *AWSProvider) Status(ctx context.Context, resources []interfaces.ResourceRef) ([]interfaces.ResourceStatus, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
-	}
-
 	var statuses []interfaces.ResourceStatus
 	for _, ref := range resources {
-		drv, err := p.resourceDriver(ref.Type)
+		drv, err := p.initializedResourceDriver(ref.Type)
 		if err != nil {
 			statuses = append(statuses, interfaces.ResourceStatus{
 				Name:   ref.Name,
@@ -406,15 +388,13 @@ func (p *AWSProvider) Status(ctx context.Context, resources []interfaces.Resourc
 
 // DetectDrift compares declared state against live AWS state.
 func (p *AWSProvider) DetectDrift(ctx context.Context, resources []interfaces.ResourceRef) ([]interfaces.DriftResult, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
+	if err := p.ensureInitialized(); err != nil {
+		return nil, err
 	}
 
 	var results []interfaces.DriftResult
 	for _, ref := range resources {
-		drv, err := p.resourceDriver(ref.Type)
+		drv, err := p.initializedResourceDriver(ref.Type)
 		if err != nil {
 			continue
 		}
@@ -439,13 +419,7 @@ func (p *AWSProvider) DetectDrift(ctx context.Context, resources []interfaces.Re
 
 // Import reads an existing AWS resource into a ResourceState.
 func (p *AWSProvider) Import(ctx context.Context, cloudID string, resourceType string) (*interfaces.ResourceState, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if !p.initialized {
-		return nil, fmt.Errorf("aws: provider not initialized")
-	}
-
-	drv, err := p.resourceDriver(resourceType)
+	drv, err := p.initializedResourceDriver(resourceType)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +479,25 @@ func (p *AWSProvider) Close() error {
 	return nil
 }
 
-// resourceDriver is the internal (non-locking) lookup, called within locked sections.
+func (p *AWSProvider) ensureInitialized() error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if !p.initialized {
+		return fmt.Errorf("aws: provider not initialized")
+	}
+	return nil
+}
+
+func (p *AWSProvider) initializedResourceDriver(resourceType string) (interfaces.ResourceDriver, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if !p.initialized {
+		return nil, fmt.Errorf("aws: provider not initialized")
+	}
+	return p.resourceDriver(resourceType)
+}
+
+// resourceDriver is the internal lookup, called within locked sections.
 func (p *AWSProvider) resourceDriver(resourceType string) (interfaces.ResourceDriver, error) {
 	d, ok := p.driverMap[resourceType]
 	if !ok {
