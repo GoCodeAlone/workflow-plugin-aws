@@ -388,6 +388,10 @@ func (p *AWSProvider) Status(ctx context.Context, resources []interfaces.Resourc
 
 // DetectDrift compares declared state against live AWS state.
 func (p *AWSProvider) DetectDrift(ctx context.Context, resources []interfaces.ResourceRef) ([]interfaces.DriftResult, error) {
+	if err := p.ensureInitialized(); err != nil {
+		return nil, err
+	}
+
 	var results []interfaces.DriftResult
 	for _, ref := range resources {
 		drv, err := p.initializedResourceDriver(ref.Type)
