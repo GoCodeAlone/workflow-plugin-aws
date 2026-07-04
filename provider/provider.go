@@ -329,10 +329,6 @@ func (p *AWSProvider) Plan(ctx context.Context, desired []interfaces.ResourceSpe
 
 // Destroy deletes a set of resources.
 func (p *AWSProvider) Destroy(ctx context.Context, resources []interfaces.ResourceRef) (*interfaces.DestroyResult, error) {
-	if err := p.ensureInitialized(); err != nil {
-		return nil, err
-	}
-
 	result := &interfaces.DestroyResult{}
 	for _, ref := range resources {
 		drv, err := p.initializedResourceDriver(ref.Type)
@@ -359,10 +355,6 @@ func (p *AWSProvider) Destroy(ctx context.Context, resources []interfaces.Resour
 
 // Status returns the live status of the given resources.
 func (p *AWSProvider) Status(ctx context.Context, resources []interfaces.ResourceRef) ([]interfaces.ResourceStatus, error) {
-	if err := p.ensureInitialized(); err != nil {
-		return nil, err
-	}
-
 	var statuses []interfaces.ResourceStatus
 	for _, ref := range resources {
 		drv, err := p.initializedResourceDriver(ref.Type)
@@ -396,10 +388,6 @@ func (p *AWSProvider) Status(ctx context.Context, resources []interfaces.Resourc
 
 // DetectDrift compares declared state against live AWS state.
 func (p *AWSProvider) DetectDrift(ctx context.Context, resources []interfaces.ResourceRef) ([]interfaces.DriftResult, error) {
-	if err := p.ensureInitialized(); err != nil {
-		return nil, err
-	}
-
 	var results []interfaces.DriftResult
 	for _, ref := range resources {
 		drv, err := p.initializedResourceDriver(ref.Type)
@@ -427,10 +415,6 @@ func (p *AWSProvider) DetectDrift(ctx context.Context, resources []interfaces.Re
 
 // Import reads an existing AWS resource into a ResourceState.
 func (p *AWSProvider) Import(ctx context.Context, cloudID string, resourceType string) (*interfaces.ResourceState, error) {
-	if err := p.ensureInitialized(); err != nil {
-		return nil, err
-	}
-
 	drv, err := p.initializedResourceDriver(resourceType)
 	if err != nil {
 		return nil, err

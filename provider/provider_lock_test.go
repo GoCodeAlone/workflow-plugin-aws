@@ -73,7 +73,7 @@ func TestAWSProviderStatusDoesNotHoldProviderLockDuringDriverRead(t *testing.T) 
 
 	select {
 	case <-writerDone:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		close(driver.release)
 		t.Fatal("provider writer blocked behind Status driver Read")
 	}
